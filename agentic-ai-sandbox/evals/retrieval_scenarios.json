@@ -1,0 +1,61 @@
+{
+  "dataset_version": "policy-retrieval-v1",
+  "top_k": 2,
+  "scenarios": [
+    {
+      "id": "return-window-paraphrase",
+      "query": "How long do I have for a return?",
+      "expected_article_ids": ["RET-01"]
+    },
+    {
+      "id": "refund-policy",
+      "query": "refunds and return window",
+      "expected_article_ids": ["RET-01"]
+    },
+    {
+      "id": "damage-paraphrase",
+      "query": "This was broken on arrival; how long do I have to report it?",
+      "expected_article_ids": ["DAM-01"]
+    },
+    {
+      "id": "defective-item",
+      "query": "What is the rule for a defective item?",
+      "expected_article_ids": ["DAM-01"]
+    },
+    {
+      "id": "delivery-estimate",
+      "query": "Are delivery estimates guaranteed?",
+      "expected_article_ids": ["SHIP-01"]
+    },
+    {
+      "id": "tracking-updates",
+      "query": "Where should I find the current tracking status?",
+      "expected_article_ids": ["SHIP-01"]
+    },
+    {
+      "id": "superseded-policy",
+      "query": "Does the current return policy allow a 60 day window?",
+      "expected_article_ids": ["RET-01"]
+    },
+    {
+      "id": "multi-policy-retrieval",
+      "query": "Compare the refund rule with the rule for a damaged item.",
+      "expected_article_ids": ["RET-01", "DAM-01"]
+    },
+    {
+      "id": "irrelevant-assembly-query",
+      "query": "How do I assemble a chair?",
+      "expected_article_ids": []
+    },
+    {
+      "id": "order-status-not-policy",
+      "query": "What is the current status for order ORD-100?",
+      "expected_article_ids": []
+    },
+    {
+      "id": "unrelated-policy-topic",
+      "query": "What should I know about bicycle maintenance?",
+      "expected_article_ids": []
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "source_id": "returns-policy",
+    "path": "returns.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "internal"
+  },
+  {
+    "source_id": "delivery-policy",
+    "path": "delivery.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "internal"
+  }
+]

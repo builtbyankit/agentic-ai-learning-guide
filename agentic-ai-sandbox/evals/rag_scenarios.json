@@ -1,0 +1,62 @@
+{
+  "dataset_version": "rag-retrieval-dev-v1",
+  "split": "development",
+  "top_k": 4,
+  "min_score": 0.22,
+  "lexical_relative_score_floor": 0.3,
+  "allowed_classifications": ["internal"],
+  "scenarios": [
+    {
+      "id": "damage-reporting-window",
+      "query": "An item arrived damaged. How long do I have to tell support?",
+      "expected_source_ids": ["returns-policy"]
+    },
+    {
+      "id": "broken-on-arrival-paraphrase",
+      "query": "What is the deadline to report a damaged arrival?",
+      "expected_source_ids": ["returns-policy"]
+    },
+    {
+      "id": "delivery-dates-guaranteed",
+      "query": "Are the delivery dates promised or just estimates?",
+      "expected_source_ids": ["delivery-policy"]
+    },
+    {
+      "id": "tracking-stopped",
+      "query": "My tracking has not changed for several days. What now?",
+      "expected_source_ids": ["delivery-policy"]
+    },
+    {
+      "id": "two-policy-request",
+      "query": "What is the damaged-item reporting window, and are delivery dates guaranteed?",
+      "expected_source_ids": ["returns-policy", "delivery-policy"]
+    },
+    {
+      "id": "irrelevant-query",
+      "query": "How do I tune a telescope to observe Saturn?",
+      "expected_source_ids": []
+    },
+    {
+      "id": "no-overlap-query",
+      "query": "Quantum entanglement and particle spin",
+      "expected_source_ids": []
+    },
+    {
+      "id": "other-tenant-scope",
+      "query": "An item arrived damaged. How long do I have to tell support?",
+      "tenant_id": "other-tenant",
+      "expected_source_ids": []
+    },
+    {
+      "id": "classification-scope",
+      "query": "An item arrived damaged. How long do I have to tell support?",
+      "allowed_classifications": ["public"],
+      "expected_source_ids": []
+    },
+    {
+      "id": "empty-query",
+      "query": "!!!",
+      "expected_source_ids": []
+    }
+  ]
+}

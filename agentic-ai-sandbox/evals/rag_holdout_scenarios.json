@@ -1,0 +1,62 @@
+{
+  "dataset_version": "rag-retrieval-holdout-v2",
+  "split": "holdout",
+  "top_k": 4,
+  "min_score": 0.22,
+  "lexical_relative_score_floor": 0.3,
+  "allowed_classifications": ["internal"],
+  "scenarios": [
+    {
+      "id": "damage-report-window-new-phrase",
+      "query": "I have a broken item. When should I tell the company?",
+      "expected_source_ids": ["returns-policy"]
+    },
+    {
+      "id": "delivery-date-confidence-new-phrase",
+      "query": "Does the tracking estimate guarantee on-time delivery?",
+      "expected_source_ids": ["delivery-policy"]
+    },
+    {
+      "id": "stalled-shipment-scan-new-phrase",
+      "query": "My shipment has been stuck on an old scan for days. Who can help?",
+      "expected_source_ids": ["delivery-policy"]
+    },
+    {
+      "id": "return-window-new-phrase",
+      "query": "How long can I send back an eligible item?",
+      "expected_source_ids": ["returns-policy"]
+    },
+    {
+      "id": "two-policy-evidence-new-phrase",
+      "query": "What is the damaged-item reporting deadline, and where do I check a parcel's progress?",
+      "expected_source_ids": ["returns-policy", "delivery-policy"]
+    },
+    {
+      "id": "no-answer-spider",
+      "query": "How many legs does a spider have?",
+      "expected_source_ids": []
+    },
+    {
+      "id": "no-answer-capital",
+      "query": "What is the capital city of Peru?",
+      "expected_source_ids": []
+    },
+    {
+      "id": "holdout-tenant-isolation-new-query",
+      "query": "What is the return policy?",
+      "tenant_id": "holdout-tenant",
+      "expected_source_ids": []
+    },
+    {
+      "id": "holdout-classification-filter-new-query",
+      "query": "What is the return policy?",
+      "allowed_classifications": ["public"],
+      "expected_source_ids": []
+    },
+    {
+      "id": "holdout-multi-source-new-phrase",
+      "query": "Compare the period to send an item back with shipment tracking guidance.",
+      "expected_source_ids": ["returns-policy", "delivery-policy"]
+    }
+  ]
+}

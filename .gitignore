@@ -1,0 +1,20 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Generated local state and evaluation reports
+*.sqlite
+*.sqlite3
+*.db
+eval-results*.json
+rag-eval*.json
+
+# Operating system/editor files
+.DS_Store
