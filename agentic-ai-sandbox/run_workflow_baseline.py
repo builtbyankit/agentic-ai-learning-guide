@@ -171,32 +171,82 @@ class ImprovedWorkflowPlanner(FixedWorkflowPlanner):
         self.eligibility_only = "refund" in lowered and any(term in lowered for term in (
             "eligible", "eligibility", "qualify", "qualification",
         ))
-        self.no_mutation = any(term in lowered for term in (
-            "do not refund", "don't refund", "do not submit", "don't submit", "do not send",
-            "don't send", "no request yet", "not for review", "no review", "do not create", "don't create",
+        # The mutation route accepts an explicit, narrow request grammar.
+        # Recognizing a refund-related word is never enough to create a proposal.
+        clauses = re.split(r"[.!?;\n]|\band\b", lowered)
+        explicit_request = any(re.match(
+            r"\s*(?:please\s+refund\s+ord-\d+|refund\s+ord-\d+|"
+            r"(?:can|could)\s+i\s+get\s+(?:a\s+)?refund\b|"
+            r"i\s+(?:want|would like)\s+(?:a\s+)?refund\b)", clause
+        ) for clause in clauses)
+        self.no_mutation = bool(re.search(
+            r"\b(?:don't|do not|never|not|without|no)\b[^.!?;\n]*"
+            r"\b(?:refund|submit|send|review|request|create)\b", lowered
+        )) or any(term in lowered for term in ("no request yet", "not for review", "no review"))
+        self.refund_route = explicit_request and not self.no_mutation
+        self.ambiguous_refund = (
+            "refund" in lowered and not self.refund_route and not self.no_mutation
+            and not self.eligibility_only
+            and not any(term in lowered for term in ("policy", "window", "return rules"))
+        )
+        self.unsupported_investment = any(term in lowered for term in (
+            "stock investment", "investment return", "stock return", "portfolio", "dividend",
         ))
-        self.refund_route = self.mode == "refund" and not self.eligibility_only and not self.no_mutation
+        status_requested = bool(re.search(r"\b(?:where|status|delivery status|on the way|item|items)\b", lowered))
         self.read_plan = []
         for ref in self.order_refs:
-            tool = "check_refund_eligibility" if self.eligibility_only else "get_order"
-            self.read_plan.append((tool, {"order_ref": ref}))
-        if not self.unsupported_payment:
-            self.read_plan.extend(("search_policy", {"topic": topic}) for topic in self.policy_topics)
+            if not self.eligibility_only or status_requested:
+                self.read_plan.append(("get_order", {"order_ref": ref}))
+            if self.eligibility_only and not self.refund_route:
+                self.read_plan.append(("check_refund_eligibility", {"order_ref": ref}))
+        self.read_plan.extend(("search_policy", {"topic": topic}) for topic in self.policy_topics)
 
     def next_action(self, user_request: str, observations: list[dict[str, object]]) -> Decision:
         if self.refund_route:
             if len(self.order_refs) != 1:
                 return Decision.handoff("Please choose one order reference for this refund request.")
-            return self._refund_action(observations)
+            # Two mutation calls require room after requested reads. Damage reason
+            # alone does not require a separate policy lookup; the proposal validates policy.
+            needed_reads = [step for step in self.read_plan if step[0] == "get_order"] if re.search(r"\b(?:where|status|item|items)\b", self.request.lower()) else []
+            if any(term in self.request.lower() for term in ("policy", "window", "guarantee")):
+                needed_reads += [step for step in self.read_plan if step[0] == "search_policy"]
+            if len(needed_reads) + 2 > 4:
+                return Decision.handoff("Please narrow the lookups before submitting this refund request.")
+            if len(observations) < len(needed_reads):
+                tool, arguments = needed_reads[len(observations)]
+                return Decision.call(tool, arguments)
+            decision = self._refund_action(observations[len(needed_reads):])
+            if decision.kind == "final":
+                prefix = self._read_summary(needed_reads, observations[:len(needed_reads)])
+                return Decision.answer(" ".join(part for part in (prefix, decision.text, self._limitations()) if part))
+            return decision
+        if self.ambiguous_refund:
+            return Decision.handoff("Do you want an eligibility check or to submit a refund request? No request was submitted for review.")
         if len(self.read_plan) > 4:
             return Decision.handoff("Please narrow this request to at most four lookups; support can help.")
-        if not self.read_plan and not self.unsupported_payment:
+        if not self.read_plan and not self.unsupported_payment and not self.unsupported_investment:
             return Decision.handoff("Please share your order reference or a supported policy question.")
         if len(observations) < len(self.read_plan):
             tool, arguments = self.read_plan[len(observations)]
             return Decision.call(tool, arguments)
+        parts = [self._read_summary(self.read_plan, observations)]
+        parts.append(self._limitations())
+        if self.no_mutation and not self.eligibility_only:
+            parts.append("No request was submitted for review.")
+        return Decision.answer(" ".join(part for part in parts if part))
+
+    def _limitations(self):
         parts = []
-        for (tool, arguments), observation in zip(self.read_plan, observations):
+        if self.unsupported_payment:
+            parts.append("I do not have access to payment ledger; I cannot verify whether card charges are settled or pending.")
+        if self.unsupported_investment:
+            parts.append("I cannot verify investment returns; this assistant only supports store orders and policies.")
+        return " ".join(parts)
+
+    @staticmethod
+    def _read_summary(plan, observations):
+        parts = []
+        for (tool, arguments), observation in zip(plan, observations):
             if not observation["ok"]:
                 target = arguments.get("order_ref", "that policy")
                 parts.append(f"I could not access {target}. Support can help.")
@@ -213,11 +263,7 @@ class ImprovedWorkflowPlanner(FixedWorkflowPlanner):
                     parts.extend(f"{article['text']} ({article['article_id']})." for article in matches)
                 else:
                     parts.append("I could not find an approved policy for that question.")
-        if self.unsupported_payment:
-            parts.append("I do not have access to payment ledger; I cannot verify whether card charges are settled or pending.")
-        if self.no_mutation and not self.eligibility_only:
-            parts.append("No request was submitted for review.")
-        return Decision.answer(" ".join(parts))
+        return " ".join(parts)
 
 
 def main() -> int:

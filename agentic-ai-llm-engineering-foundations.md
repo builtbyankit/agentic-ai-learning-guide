@@ -68,6 +68,10 @@ Function calling expresses tool intent and results within a model-provider proto
 
 For an interview, explain discovery versus invocation, trusted actor context versus model arguments, and what happens when a server changes its tool schema or returns malicious text. Use the [MCP authorization specification](https://modelcontextprotocol.io/specification/latest/basic/authorization) for transport-specific current requirements; pin the protocol version in an implementation review.
 
+## Work the calculations
+
+The [numerical workbook](agentic-ai-numerical-workbook.md) provides attempt-first questions and worked answers for token budgeting, softmax/top-p, scaled attention, cosine/dot product, BM25/RRF, ranking/abstention metrics, LoRA parameters and KV/weight memory. Reproduce its arithmetic with the sandbox's `run_numerical_exercises.py`; hardware/model performance still needs experiments.
+
 ## Exit criteria
 
 Without notes, explain one token budget, one embedding/reranking failure, the RAG-versus-adaptation decision, and a prefill/decode bottleneck. Implement cosine ranking with zero-vector handling and compare it with a lexical baseline. Write a model-change evaluation covering normal tasks, refusals, malformed output, stale sources, and authorization. Show how a low-temperature, schema-valid answer can still fail.

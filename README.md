@@ -13,6 +13,12 @@ For interview preparation, start with the [mastery and interview plan](agentic-a
 - [Worked capacity and cost design](agentic-ai-worked-capacity-and-cost.md): numerical sizing, quotas, latency, cost, and review capacity with explicitly hypothetical inputs.
 - [Advanced labs](agentic-ai-advanced-labs.md): stronger baseline, answer support, retrieval/abstention, index lifecycle, fault recovery, orchestration, load, and adaptation experiments.
 
+- [Completed reference solutions](agentic-ai-completed-reference-solutions.md): five failure-to-fix case studies with runnable evidence and limitations.
+- [Coding interview practice](agentic-ai-coding-interview-practice.md): six exercises, separate prompts/reference implementations, and failure-focused checks.
+- [Numerical workbook](agentic-ai-numerical-workbook.md): worked attention, decoding, similarity, ranking, adaptation and memory calculations.
+- [Architecture decision cases](agentic-ai-architecture-decision-cases.md): storage, orchestration, model hosting and provider-integration trade-offs under explicit constraints.
+- [Leadership interview practice](agentic-ai-leadership-interview-practice.md): disagreement, scope, incidents, migrations, evaluation ownership and business impact.
+
 
 1. Read the [mastery roadmap](agentic-ai-mastery-roadmap.md) to understand the sequence and expected outcomes.
 2. Work through the [12-module curriculum](#curriculum), in order or by topic.
@@ -52,6 +58,7 @@ From the repository root:
 cd agentic-ai-sandbox
 python3 run_evals.py
 python3 run_workflow_checks.py
+python3 run_coding_checks.py
 python3 run_answer_eval_checks.py
 python3 run_retrieval_checks.py
 python3 run_rag_checks.py

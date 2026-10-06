@@ -2,7 +2,7 @@
 
 ## Interview upgrade and current baseline
 
-The default workflow runner now uses `--baseline improved`; `--baseline original` preserves the original router and historical numeric results below. The improved router passes 17/17 v7 cases with 22 tool calls and zero model calls; eight additional authored challenges also pass. The baseline runner now exits 1 when scenario grading finds a gap, so the historical original-v7 run intentionally exits 1.
+The default workflow runner now uses `--baseline improved`; `--baseline original` preserves the original router and historical numeric results below. The improved router passes 17/17 v7 cases with 22 tool calls and zero model calls; sixteen additional authored challenges also pass. The baseline runner now exits 1 when scenario grading finds a gap, so the historical original-v7 run intentionally exits 1.
 
 ```sh
 python3 run_workflow_baseline.py --baseline improved --dataset evals/live_scenarios_v7.json
@@ -13,7 +13,7 @@ python3 run_answer_evals.py
 python3 run_answer_evals.py --answers evals/answer_quality_bad.json
 ```
 
-Run all twelve dependency-free suites with `python3 run_offline_checks.py`; the Pages workflow also runs this gate before building. Optional PDF, live-provider and load experiments remain separate.
+Run all seventeen dependency-free suites with `python3 run_offline_checks.py`; the Pages workflow also runs this gate before building. New suites cover coding reference solutions, index lifecycle, interrupted generation recovery, bug-to-fix cases and numerical exercises. See [coding practice](../agentic-ai-coding-interview-practice.md) and [completed solutions](../agentic-ai-completed-reference-solutions.md). Optional PDF, live-provider and load experiments remain separate.
 
 The bad-answer fixtures intentionally exit 1. The answer lab isolates generation using frozen synthetic evidence: claim-label support, required facts, reference/version validity, abstention and review coverage. Unknown paraphrases require human review. It is not a semantic entailment grader or a live benchmark. Optional `generate_answer_candidates.py --live --output /tmp/answer-trial-1.json` sends allowed evidence without evaluation labels and makes paid API calls only after explicit configuration. See [advanced labs](../agentic-ai-advanced-labs.md), [the preparation plan](../agentic-ai-mastery-and-interview-plan.md), and [upgrade validation](../agentic-ai-interview-upgrade-validation.md).
 
@@ -161,7 +161,7 @@ python3 run_live_evals.py --dataset evals/live_scenarios_v7.json --trials 3 --ou
 # Add --rate-card ~/.config/agentic-ai/rate-card.json to estimate model-token charges from current rates.
 ```
 
-The v4 baseline passes **10/10**, using twelve tool calls and zero model calls. The v5 baseline passes **12/15**; v6 passes **13/16**; v7 passes **14/17**, using twenty tool calls and zero model calls. The three remaining gaps are the two-order comparison, the two-policy-topic request, and explicit abstention on card-ledger status. These runs are synthetic architecture discriminators, not measures of live-agent performance. Run the live agent suite against the same v7 dataset before comparing quality, latency, and operating cost.
+The v4 baseline passes **10/10**, using twelve tool calls and zero model calls. The v5 baseline passes **12/15**; v6 passes **13/16**; v7 passes **14/17**, using twenty tool calls and zero model calls. Those original-router gaps were the two-order comparison, the two-policy-topic request, and explicit abstention on card-ledger status; all three pass in the current improved v7 router. These runs are synthetic architecture discriminators, not measures of live-agent performance. Run the live agent suite against the same v7 dataset before comparing quality, latency, and operating cost.
 
 ## What the prototype demonstrates
 

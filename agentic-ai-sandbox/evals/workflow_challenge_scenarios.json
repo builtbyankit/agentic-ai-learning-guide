@@ -1,5 +1,5 @@
 {
-  "dataset_version": "workflow-challenge-v1",
+  "dataset_version": "workflow-challenge-v2",
   "purpose": "Authored regression challenges, not independent holdout",
   "scenarios": [
     {
@@ -150,6 +150,130 @@
         "get_order"
       ],
       "expected_tool_errors": 1
+    },
+    {
+      "id": "negated-want-refund",
+      "name": "negative refund intent cannot create review",
+      "request": "I don't want a refund for ORD-100. Just tell me its status.",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "shipped",
+        "No request was submitted"
+      ],
+      "must_not_call": [
+        "prepare_refund_proposal",
+        "request_human_review"
+      ]
+    },
+    {
+      "id": "damage-explicit-refund",
+      "name": "damage reason preserves an explicit refund request",
+      "request": "Please refund ORD-100 because the notebook arrived damaged.",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "review"
+      ],
+      "must_call": [
+        "prepare_refund_proposal",
+        "request_human_review"
+      ],
+      "expected_reviews": 1
+    },
+    {
+      "id": "eligibility-and-status",
+      "name": "eligibility and status remain separate outcomes",
+      "request": "Is ORD-100 eligible for a refund, and where is it now?",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "eligible",
+        "shipped"
+      ],
+      "must_call": [
+        "check_refund_eligibility",
+        "get_order"
+      ],
+      "must_not_call": [
+        "prepare_refund_proposal",
+        "request_human_review"
+      ]
+    },
+    {
+      "id": "mixed-finance-domain",
+      "name": "unsupported investment subquestion is explicit",
+      "request": "Where is ORD-100? What is the return window and the return on my stock investment?",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "shipped",
+        "30 days",
+        "cannot verify investment returns"
+      ],
+      "must_not_call": [
+        "prepare_refund_proposal",
+        "request_human_review"
+      ]
+    },
+    {
+      "id": "mixed-refund-status",
+      "name": "status evidence is retained before refund proposal",
+      "request": "Where is ORD-100? Please refund ORD-100 because it arrived late.",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "shipped",
+        "review"
+      ],
+      "must_call": [
+        "get_order",
+        "prepare_refund_proposal",
+        "request_human_review"
+      ],
+      "expected_reviews": 1
+    },
+    {
+      "id": "unclear-refund-intent",
+      "name": "unrecognized refund intent clarifies before write",
+      "request": "Maybe a refund for ORD-100 would be useful.",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "eligibility check",
+        "No request was submitted"
+      ],
+      "must_not_call": [
+        "prepare_refund_proposal",
+        "request_human_review"
+      ],
+      "expected_statuses": [
+        "handoff"
+      ]
+    },
+    {
+      "id": "negative-review",
+      "name": "negative review request overrides refund proposal wording",
+      "request": "Please refund ORD-100, but do not request a review yet.",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "No request was submitted"
+      ],
+      "must_not_call": [
+        "prepare_refund_proposal",
+        "request_human_review"
+      ]
+    },
+    {
+      "id": "unclear-damage-refund",
+      "name": "unrecognized refund phrasing with damage still clarifies",
+      "request": "Could you process a refund for damaged ORD-100?",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "eligibility check",
+        "No request was submitted"
+      ],
+      "must_not_call": [
+        "prepare_refund_proposal",
+        "request_human_review"
+      ],
+      "expected_statuses": [
+        "handoff"
+      ]
     }
   ]
 }

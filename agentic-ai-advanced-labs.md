@@ -2,6 +2,10 @@
 
 These labs close the gap between architectural vocabulary and a defensible implementation. They specify experiments, not unmeasured results. Use approved or synthetic data and keep provider credentials and private traces outside Git. API experiments are optional and must be explicitly configured; offline work remains useful.
 
+## Completed offline references
+
+Start with the [completed solutions](agentic-ai-completed-reference-solutions.md) and [coding prompts](agentic-ai-coding-interview-practice.md). Five case studies now contain runnable implementations, failure analysis and observed checks. Live-provider, adaptation and operational extensions below remain experiments; their results are not fabricated. The source comparison and numerical exercises have separate [decision cases](agentic-ai-architecture-decision-cases.md) and [worked answers](agentic-ai-numerical-workbook.md).
+
 ## Lab 1: Improve the baseline before adding an agent
 
 From the sandbox:
@@ -12,7 +16,7 @@ python3 run_workflow_baseline.py --baseline improved --dataset evals/live_scenar
 python3 run_workflow_checks.py
 ```
 
-The original returns exit 1 for its three expected evaluation gaps; the improved passes 17/17 with 22 tool calls and no model calls. The eight additional authored regression challenges test reversed ownership, repeated IDs, two policies, read-only eligibility, negated refund, multi-refund clarification, oversized plans, and unknown orders. They were created during improvement, so are not an independent holdout.
+The original returns exit 1 for its three expected evaluation gaps; the improved passes 17/17 with 22 tool calls and no model calls. The sixteen additional authored regression challenges test reversed ownership, repeated IDs, two policies, read-only eligibility, negated refund, multi-refund clarification, oversized plans, and unknown orders. They were created during improvement, so are not an independent holdout.
 
 **Experiment:** Ask another person to label a fresh task sample without looking at router code. Include implicit references, negation, multi-turn ambiguity, mixed read/write intent, languages, and misleading unsupported requests. Freeze it and run the improved workflow and live planner under identical budgets and graders. Do not route by scenario IDs or add holdout-specific phrase rules.
 
@@ -37,7 +41,7 @@ python3 generate_answer_candidates.py --live --output /tmp/answer-trial-1.json
 python3 run_answer_evals.py --answers /tmp/answer-trial-1.json --output /tmp/answer-review-1.json
 ```
 
-The generator sends questions and allowed evidence only, without gold labels; fake-client checks cover that boundary. It makes no tool calls, records usage/model/prompt/dataset fingerprints, and rejects abnormal completion. No live run has been performed for the repository's results. The provider can paraphrase claims outside the authored labels; an initial failure then means review is required, not automatically that the model hallucinated.
+The generator sends questions and allowed evidence only, without gold labels; fake-client checks cover that boundary. Each attempt is checkpointed; an incomplete trial retains completed answers and usage. Resume with `--live --resume` against the same output path, adding `--retry-failed` only when a failed/unfinished read-only call should be repeated. Fingerprints prevent a changed prompt/model/dataset from joining the trial. Unknown transport-failure usage is not reported as zero. `run_generation_recovery_checks.py` verifies these semantics offline. It makes no tool calls, records usage/model/prompt/dataset fingerprints, and rejects abnormal completion. No live run has been performed for the repository's results. The provider can paraphrase claims outside the authored labels; an initial failure then means review is required, not automatically that the model hallucinated.
 
 **Human review protocol:** Split answers into atomic claims; label supported, contradicted, or insufficient evidence and supporting source/version. Independently review a sample with two reviewers, adjudicate disagreement, and record label revision. Freeze accepted claim/citation mappings before scoring that trial. Do not expose evaluation labels to generation or use holdout answers to tune a prompt. The simple exact-label evaluator does not replace a calibrated semantic or human grader.
 
@@ -56,6 +60,8 @@ Construct a larger negative set: shared financial words, negation, near-duplicat
 Build a connector simulator with monotonic source revisions and independent text, ACL, classification and deletion changes. Test unchanged text with changed ACL/classification; unchanged text with a new chunker/embedder; a deletion arriving during rebuild; and an older event arriving after a newer one.
 
 Require tenant/source namespacing, revision-aware conditional publication, security metadata refresh without unnecessary embedding, and an active-version pointer. A stale event cannot reactivate deleted or restricted content. Authorization rechecks must precede disclosure even if physical removal is asynchronous. Compare with the corrected Harper pseudocode.
+
+Run `python3 run_index_lifecycle_checks.py` for the completed synthetic reference, then extend it with real connector/database concurrency.
 
 **Gate:** Demonstrate the classification bug with the guard removed and the denied result with it restored. Explain how source metadata and ACL snapshots are acquired consistently; separate that contract from atomic index publication.
 

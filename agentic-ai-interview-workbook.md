@@ -2,6 +2,10 @@
 
 Pair this workbook with the [35 core questions](agentic-ai-interview-preparation.md), [LLM foundations](agentic-ai-llm-engineering-foundations.md), and [worked capacity exercise](agentic-ai-worked-capacity-and-cost.md). A polished paragraph is the start of an answer. A senior candidate must also draw the control flow, predict a failure, quantify the trade-off, and identify their evidence.
 
+## Deep practice companions
+
+Use the [coding exercises and reference solutions](agentic-ai-coding-interview-practice.md), [numerical workbook](agentic-ai-numerical-workbook.md), and [completed failure-to-fix case studies](agentic-ai-completed-reference-solutions.md) for implementation and calculations. Add the [architecture comparisons](agentic-ai-architecture-decision-cases.md) and [leadership scenarios](agentic-ai-leadership-interview-practice.md) for staff/principal depth. These are separate from personal production experience.
+
 ## How to practice
 
 Answer the core question in two minutes without notes. Spend three minutes on the follow-up below. Draw or calculate the artifact in five minutes. Check your answer against the expected reasoning, then record a score and the next experiment. Use personal experience only where you can substantiate it.

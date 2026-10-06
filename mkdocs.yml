@@ -48,6 +48,12 @@ nav:
       - LLM Engineering Foundations: agentic-ai-llm-engineering-foundations.md
       - Worked Capacity and Cost: agentic-ai-worked-capacity-and-cost.md
       - Advanced Labs: agentic-ai-advanced-labs.md
+      - Completed Reference Solutions: agentic-ai-completed-reference-solutions.md
+      - Coding Interview Practice: agentic-ai-coding-interview-practice.md
+      - Numerical Workbook: agentic-ai-numerical-workbook.md
+      - Architecture Decisions: agentic-ai-architecture-decision-cases.md
+      - Leadership Interviews: agentic-ai-leadership-interview-practice.md
+      - Gap Fix Validation: agentic-ai-gap-fix-validation.md
       - Upgrade Validation: agentic-ai-interview-upgrade-validation.md
   - Worked Project Example: agentic-ai-project-example-harper.md
   - Sandbox:

@@ -27,6 +27,6 @@ The v1 holdout has been run and reviewed, so it is now a regression set. Create 
 
 ## Interview-upgrade datasets
 
-`workflow_challenge_scenarios.json` contains eight improvement-time regression challenges, not an independent holdout. Preserve v4–v7 when comparing the original and improved routers.
+`workflow_challenge_scenarios.json` now contains sixteen improvement-time regression challenges (`workflow-challenge-v2`), not an independent holdout. Preserve v4–v7 when comparing the original and improved routers.
 
 `answer_quality_scenarios.json` freezes synthetic evidence, permitted source/version references, required facts, authored supported/rejected claims and expected completion/limitation. `answer_quality_good.json` and `answer_quality_bad.json` exercise the evaluator; they are candidate fixtures, not model results. Exact normalized claim labels intentionally leave unknown paraphrases pending human review. Report reviewed support with label coverage. The optional live generator receives only questions and allowed evidence, never gold claim labels. See [Lab 2](../../agentic-ai-advanced-labs.md) for independent labeling, trial review and the end-to-end extension.

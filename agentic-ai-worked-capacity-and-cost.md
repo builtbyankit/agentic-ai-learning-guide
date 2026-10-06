@@ -32,7 +32,7 @@ For fixed windows, count approximately `1 + ceil((document_tokens - chunk_tokens
 - Embedded chunk tokens: last window is 500 tokens; `5 × 600 + 500 = 3,500/document`, about 700 million total. Overlap costs more than the original 600 million tokens.
 - Changed documents: `4,000/day`; approximate 24,000 replacement chunks and 14 million embedding input tokens/day.
 
-Raw vectors exclude graph/index overhead, lexical postings, text, metadata, tombstones, staging, replicas, and backups. With an illustrative assumed planning factor of 3 for the active index and two replicas, provision approximately 29.5 GB just for that modeled vector/index allocation. Benchmark the factor; this is not a universal HNSW rule. Retain a separate budget for other data and a rebuild beside the active version.
+Raw vectors exclude graph/index overhead, lexical postings, text, metadata, tombstones, staging, replicas, and backups. With an illustrative assumed planning factor of 3 and one primary plus two replicas (three total copies), provision approximately 44.2 GB just for that modeled vector/index allocation. Benchmark the factor; this is not a universal HNSW rule. Retain a separate budget for other data and a rebuild beside the active version.
 
 If sustained ingestion is 100 chunks/second, a full 1.2-million-chunk rebuild takes at least 12,000 seconds, or 3 hours 20 minutes, excluding fetch, parse, retry, validation, and publication. That rate also consumes roughly 58,300 embedding input tokens/second on the assumed average chunk size. Provider quotas may dominate. A 15-minute rebuild promise needs at least 1,334 chunks/second before overhead.
 
@@ -66,7 +66,7 @@ Use invented rates: input $2/million tokens, output $8/million, embeddings $0.10
 
 Weighted generation cost is `0.3 × 0.012 + 0.1 × 0.048 = $0.0084/task`. For 880,000 tasks/month, generation spend is $7,392 before retries. Uniform 10% token overhead gives $8,131.20.
 
-Initial corpus embeddings cost approximately $70; 22 days of changes cost $30.80. Query embeddings, reranking, connector APIs, storage, compute, telemetry, egress, human work, and tax are excluded and must be added. With a measured 92% useful-completion rate and the illustrative retry spend, generation cost per useful task is `$8,131.20 / (880,000 × 0.92) ≈ $0.0100`. Compare useful, authorized outcomes, not just cheap calls.
+Initial corpus embeddings cost approximately $70; 22 days of changes cost $30.80. Query embeddings, reranking, connector APIs, storage, compute, telemetry, egress, human work, and tax are excluded and must be added. With an assumed 92% useful-completion rate and the illustrative retry spend, generation cost per useful task is `$8,131.20 / (880,000 × 0.92) ≈ $0.0100`. Compare useful, authorized outcomes, not just cheap calls.
 
 **Sensitivity:** Doubling investigations from 10% to 20% while reducing search-only from 60% to 50% raises weighted token cost to $0.0132/task, a 57% increase. Uniform 10% retries then cost $12,777.60/month. Model calls rise to 0.9/task, or 270/minute at peak. Quality and rate-limit constraints can become the bottleneck before infrastructure cost.
 

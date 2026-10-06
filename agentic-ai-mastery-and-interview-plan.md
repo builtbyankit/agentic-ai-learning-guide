@@ -2,6 +2,10 @@
 
 Use this as the starting page for the expanded course. Default track: senior AI engineer / architect. A study schedule creates practice opportunities; completing readings alone does not establish mastery or guarantee an interview result.
 
+## Completed practice material
+
+Attempt the [coding prompts](agentic-ai-coding-interview-practice.md) and [numerical questions](agentic-ai-numerical-workbook.md) before reading the answers. The [completed reference case studies](agentic-ai-completed-reference-solutions.md) demonstrate actual offline failure/correction checks. Use [architecture decision cases](agentic-ai-architecture-decision-cases.md) to compare platforms under constraints and [leadership practice](agentic-ai-leadership-interview-practice.md) for personal ownership and organizational judgment.
+
 ## Choose your route
 
 | Track | Prioritize | Demonstration |
@@ -25,7 +29,7 @@ Assume roughly 10–12 focused hours/week. Adapt to your existing experience. Ea
 | 5 | Harper, Module 12, advanced labs | Versioned capstone dossier and experiment report | Map each requirement to control, evidence, signal, owner; label implemented, proposed, assumed |
 | 6 | All four mock rounds; two personal narratives; weak-area retakes | Interview evidence pack | Three changed-scenario mocks >=18/24, no dimension below 2, no unsafe or fabricated claims |
 
-Daily block: 20 minutes explain aloud, 45 minutes build/debug, 20 minutes evaluate, 15 minutes write the failure and next decision. Reserve longer sessions for design and load/fault experiments.
+Daily block: 20 minutes explain aloud, 45 minutes build/debug using the coding exercises, 20 minutes evaluate, 15 minutes write the failure and next decision. Reserve longer sessions for design and load/fault experiments.
 
 ## Fourteen-day interview sprint
 
@@ -46,7 +50,7 @@ For candidates with prior engineering experience, compress practice rather than 
 
 Keep seven compact artifacts: task/autonomy contract, runtime/trust diagram, failure state machine, evaluation report, numerical capacity/cost sheet, threat/operations decision record, and personal project narratives. Each should name its date/configuration and distinguish measurements from assumptions. Link to code or trace evidence where available.
 
-The new workflow passes 17/17 existing v7 cases and 8/8 additional authored challenges. This shows explicit branches can solve those cases; it does not establish general intent understanding or production reliability. The answer-quality fixtures demonstrate grader behavior, not live model quality. Live-provider experiments are separate and optional until configured and budgeted.
+The new workflow passes 17/17 existing v7 cases and 16/16 additional authored challenges. This shows explicit branches can solve those cases; it does not establish general intent understanding or production reliability. The answer-quality fixtures demonstrate grader behavior, not live model quality. Live-provider experiments are separate and optional until configured and budgeted.
 
 ## Completion gates
 

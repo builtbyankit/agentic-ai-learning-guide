@@ -8,6 +8,8 @@ The answers are models for clear reasoning, not scripts to memorize. In an inter
 
 Each question below has a follow-up and an expected artifact in the [interview workbook](agentic-ai-interview-workbook.md). Explain the answer in two minutes, defend a changed assumption, and show a diagram, calculation or failure trace. Use [LLM foundations](agentic-ai-llm-engineering-foundations.md) for model mechanics and [worked sizing](agentic-ai-worked-capacity-and-cost.md) for numerical system design. The [preparation plan](agentic-ai-mastery-and-interview-plan.md) supplies six-week and fourteen-day practice routes.
 
+For deeper preparation, use [coding practice](agentic-ai-coding-interview-practice.md), [numerical worked answers](agentic-ai-numerical-workbook.md), [architecture comparisons](agentic-ai-architecture-decision-cases.md), and [leadership scenarios](agentic-ai-leadership-interview-practice.md). [Completed reference solutions](agentic-ai-completed-reference-solutions.md) show failed traces, controls, observed checks and limitations.
+
 ## A strong answer structure
 
 For an architecture or system-design question, work through this sequence:

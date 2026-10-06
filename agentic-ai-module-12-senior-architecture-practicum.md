@@ -20,6 +20,8 @@ The central review criterion is traceability: every important product requiremen
 
 Use the [worked capacity/cost exercise](agentic-ai-worked-capacity-and-cost.md) to turn assumptions into storage, throughput, quotas, concurrency, latency budgets and reviewer staffing. Use [Mock A and the scoring rubric](agentic-ai-interview-workbook.md) to defend the dossier under changed assumptions. The [advanced labs](agentic-ai-advanced-labs.md) define evidence-building experiments for the open implementation and operations gates.
 
+Extend the dossier with a [platform decision case](agentic-ai-architecture-decision-cases.md), an actual [completed reference experiment](agentic-ai-completed-reference-solutions.md) you reproduce, and a [leadership narrative](agentic-ai-leadership-interview-practice.md) from your own work. Use the [numerical workbook](agentic-ai-numerical-workbook.md) to defend mechanism and sizing assumptions.
+
 ## 1. Write the decision brief
 
 Before drawing components, document:

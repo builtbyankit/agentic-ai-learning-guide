@@ -1,5 +1,7 @@
 # Interview and Mastery Upgrade — Validation
 
+This is the initial upgrade snapshot. The later [gap-fix validation](agentic-ai-gap-fix-validation.md) records additional content, intent corrections, sixteen workflow challenges and seventeen offline suites.
+
 Date: 2026-10-07. This report records the curriculum and offline engineering upgrade. It does not certify interview outcomes, live model quality, or production readiness. The earlier evaluation report remains the historical snapshot of the original implementation.
 
 ## Material added

@@ -10,7 +10,9 @@ The central design rule throughout this roadmap is: **use the least autonomous a
 
 Start with the [mastery/interview plan](agentic-ai-mastery-and-interview-plan.md), take a diagnostic mock, and choose a track. Complete [LLM foundations](agentic-ai-llm-engineering-foundations.md) before the live adapter; use the [workbook](agentic-ai-interview-workbook.md), [numerical capacity example](agentic-ai-worked-capacity-and-cost.md), and [advanced labs](agentic-ai-advanced-labs.md) alongside the modules.
 
-The improved workflow now passes 17/17 existing v7 cases with 22 tool calls and zero model calls, plus eight authored challenge regressions. Original-router results below remain historical comparisons and can be reproduced with `--baseline original`. Neither suite is an independent production holdout. The new answer-quality lab separates reference validity, labeled claim support, coverage, abstention, and human-review requirements; fixture checks do not establish live-model quality. See [upgrade validation](agentic-ai-interview-upgrade-validation.md).
+The improved workflow now passes 17/17 existing v7 cases with 22 tool calls and zero model calls, plus sixteen authored challenge regressions. Original-router results below remain historical comparisons and can be reproduced with `--baseline original`. Neither suite is an independent production holdout. The new answer-quality lab separates reference validity, labeled claim support, coverage, abstention, and human-review requirements; fixture checks do not establish live-model quality. See [upgrade validation](agentic-ai-interview-upgrade-validation.md).
+
+The [completed solutions](agentic-ai-completed-reference-solutions.md), [coding practice](agentic-ai-coding-interview-practice.md), [numerical workbook](agentic-ai-numerical-workbook.md), [architecture comparisons](agentic-ai-architecture-decision-cases.md), and [leadership practice](agentic-ai-leadership-interview-practice.md) add implementation and interview depth. Current dependency-free verification has seventeen suites; see [gap-fix validation](agentic-ai-gap-fix-validation.md).
 
 ## Course progress
 

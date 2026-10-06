@@ -7,6 +7,8 @@ CHECKS = (
     'run_approval_checks.py', 'run_security_checks.py', 'run_retrieval_checks.py',
     'run_rag_checks.py', 'run_embedding_checks.py', 'run_eval_runner_checks.py',
     'run_cost_model_checks.py', 'run_workflow_checks.py', 'run_answer_eval_checks.py',
+    'run_coding_checks.py', 'run_index_lifecycle_checks.py',
+    'run_generation_recovery_checks.py', 'run_reference_cases.py', 'run_numerical_exercises.py',
 )
 
 
