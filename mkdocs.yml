@@ -8,6 +8,7 @@ theme:
   name: material
   features:
     - navigation.sections
+    - navigation.footer
     - navigation.top
     - content.code.copy
     - toc.follow
