@@ -76,6 +76,17 @@ Practical rules:
 
 The embedding model and vector store are separate parts of the system. Keep an `Embedder` interface so you can compare providers or models without changing ingestion, authorization, or agent code. Anthropic's documentation currently says Anthropic does not offer its own embedding model and demonstrates a separate embeddings provider; evaluate model quality, language/domain coverage, latency, privacy, and cost for the actual corpus. See [Anthropic's embeddings guide](https://platform.claude.com/docs/en/build-with-claude/embeddings).
 
+The sandbox includes an optional standard-library HTTP adapter for Voyage. It sends document and query inputs with distinct `input_type` values, batches changed chunks before the SQLite write transaction, restores response order from provider indices, checks dimensions and finite values, and records request/input-token counts. The default path remains local feature hashing. See the provider's [text embeddings API](https://docs.voyageai.com/reference/embeddings-api-1) for request and model details. To run an actual semantic comparison, set `VOYAGE_API_KEY` in the environment and opt in explicitly:
+
+```sh
+export VOYAGE_API_KEY="your-key"
+python3 run_rag_evals.py --manifest knowledge/advanced/manifest.json \
+  --dataset evals/advanced_dev_scenarios.json --retriever dense \
+  --embedding-provider voyage --embedding-model voyage-4 --output voyage-dev.json
+```
+
+Then evaluate the chosen configuration on a holdout only after model/chunking decisions are set. `voyage-4` is the adapter default; verify model availability, endpoint, data terms, and current pricing with the provider. `VOYAGE_API_URL` or `--embedding-endpoint` can select a compatible regional endpoint. The adapter makes real billable requests only with the explicit `--embedding-provider voyage` flag, does not retry automatically, and never writes the API key to a report. Do not commit keys or reports containing sensitive queries. No live Voyage call has been made in this workspace, so existing retrieval metrics remain feature-hashing/lexical baselines.
+
 Store each vector with filterable metadata, not as a detached float array. Common fields are `tenant_id`, access groups, classification, source ID, version, effective date, status, content hash, section/page, embedding model ID, and vector. Apply tenant/access/version filters inside the retrieval boundary before evidence is returned. Do not ask the model to enforce access control after retrieval.
 
 The local lab uses SQLite to persist vectors and metadata and computes exact cosine similarity over the rows allowed by trusted tenant and classification filters. It also implements a small BM25-style lexical ranker and reciprocal-rank fusion (RRF) so you can compare dense, lexical, and hybrid paths. This makes the mechanics inspectable and runnable without an API key. Its deterministic feature-hashing embedder is **not** a semantic embedding model, and exact scanning is not a production-scale approximate-nearest-neighbor index. Replace it with a real embedding model and an appropriate vector-capable database when scale and relevance evaluations justify it. A database might combine vector search with full-text search, metadata indexes, tenant policy, backups, deletion workflows, and index-version management.
@@ -163,6 +174,7 @@ python3 run_rag_evals.py --retriever lexical
 python3 run_rag_evals.py --retriever hybrid
 python3 run_rag_evals.py --retriever lexical --output rag-eval.json
 python3 run_rag_evals.py --dataset evals/rag_scenarios.json --retriever hybrid
+python3 run_rag_evals.py --manifest knowledge/advanced/manifest.json --dataset evals/advanced_dev_scenarios.json --retriever dense --embedding-provider voyage
 ```
 
 The first demo run creates `rag-demo.sqlite` in the current directory. The demo derives a stable chunk ID, preserves heading path and policy version, embeds the chunk, stores vector plus metadata, and runs tenant-scoped cosine search. The sample classifier is synthetic. The `another-tenant` query returns no evidence because its trusted scope does not match. `run_rag_checks.py` exercises the local storage and access contract. `run_rag_evals.py` defaults to the holdout set and supports `dense`, `lexical`, or `hybrid`; the development set is selectable by path. Its optional JSON output includes corpus/dataset fingerprints and retrieved chunk IDs with source metadata for trace review. A `GAP` and nonzero exit code show retrieval misses or false positives, not a code crash.
@@ -186,7 +198,7 @@ On `agentic-rag-advanced-holdout-v1`, the measured dense / lexical / hybrid resu
 | Unique-source precision | 31% | 34% | 31% |
 | Forbidden-source leaks | 0/2 | 0/2 | 0/2 |
 
-The lexical baseline ranked every required source in this authored holdout but returned irrelevant sources and failed one hard-negative query. Dense and hybrid retrieval failed to abstain on the two no-answer cases; hybrid inherited lexical and dense candidates. The authorization cases showed no forbidden-source leakage under the tested filters, but two cases are far too few to establish tenant isolation. These results make the next step clear: improve negative-query threshold calibration, then compare with a real embedding model on a larger independent corpus. The feature-hashing dense result remains a plumbing diagnostic, not semantic retrieval evidence.
+The lexical baseline ranked every required source in this authored holdout but returned irrelevant sources and failed one hard-negative query. Dense and hybrid retrieval failed to abstain on the two no-answer cases; hybrid inherited lexical and dense candidates. The authorization cases showed no forbidden-source leakage under the tested filters, but two cases are far too few to establish tenant isolation. The runnable Voyage adapter enables the next experiment, but a provider call, representative corpus, and independently labeled holdout are still required. Improve negative-query threshold calibration and compare answer grounding as well as retrieval metrics. The feature-hashing dense result remains a plumbing diagnostic, not semantic retrieval evidence.
 
 `advanced_holdout_v1` has now been inspected and should be treated as a regression set, not an untouched benchmark for future tuning. Preserve a new holdout version for the next retrieval-model or threshold decision.
 

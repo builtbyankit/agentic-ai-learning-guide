@@ -10,7 +10,7 @@ A senior-level learning path for agentic AI engineering and system architecture.
 4. Complete [Module 12: Senior Architecture Practicum](agentic-ai-module-12-senior-architecture-practicum.md) as the final design dossier and review.
 5. Use the [Python sandbox](agentic-ai-sandbox/README.md) for hands-on exercises and evaluation workflows.
 
-See the [latest offline evaluation report](agentic-ai-evaluation-report-2026-10-06.md) for executed results, retrieval failure analysis, production-evidence gaps, and the recommended next experiments.
+See the [latest offline evaluation report](agentic-ai-evaluation-report-2026-10-06.md) for executed results, retrieval failure analysis, production-evidence gaps, and the recommended next experiments. The RAG lab defaults to offline hashing and includes an explicitly enabled Voyage semantic-embedding adapter; live provider evaluation remains pending.
 
 ## Repository structure
 
@@ -23,6 +23,7 @@ agentic-ai-sandbox/
   approval_outbox.py
   policy_retrieval.py
   rag_pipeline.py
+  voyage_embedder.py
   evals/
   run_*.py
 ```

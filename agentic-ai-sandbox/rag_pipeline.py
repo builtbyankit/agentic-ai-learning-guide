@@ -106,6 +106,15 @@ class HashingEmbedder:
             vector = [value / norm for value in vector]
         return vector
 
+    def embed_query(self, text: str) -> list[float]:
+        return self.embed(text)
+
+    def embed_queries(self, texts: Sequence[str]) -> list[list[float]]:
+        return [self.embed(text) for text in texts]
+
+    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return [self.embed(text) for text in texts]
+
 
 def normalize_text(text: str, *, redact_basic_pii: bool = False) -> str:
     """Normalize common text noise while preserving paragraph and line boundaries."""
@@ -270,60 +279,96 @@ class SQLiteVectorStore:
         self.connection.close()
 
     def ingest(self, document: Document, *, max_words: int = 90, overlap_words: int = 18) -> int:
-        chunks = prepare_document(document, max_words=max_words, overlap_words=overlap_words)
-        current = self.connection.execute(
-            """SELECT chunk_id, source_hash, version, effective_date, status,
-                      classification, embedding_model
-               FROM chunks
-               WHERE tenant_id = ? AND source_id = ? AND status = 'active'""",
-            (document.tenant_id, document.source_id),
-        ).fetchall()
-        expected_ids = {chunk.chunk_id for chunk in chunks}
-        unchanged = len(current) == len(chunks) and {row["chunk_id"] for row in current} == expected_ids
-        if unchanged:
-            unchanged = all(
-                row["source_hash"] == chunks[0].source_hash
-                and row["version"] == document.version
-                and row["effective_date"] == document.effective_date
-                and row["status"] == document.status
-                and row["classification"] == document.classification
-                and row["embedding_model"] == self.embedder.model_id
-                for row in current
-            ) if current else True
-        if unchanged:
-            return 0
+        return self.ingest_many([document], max_words=max_words, overlap_words=overlap_words)[0]
+
+    def ingest_many(
+        self,
+        documents: Sequence[Document],
+        *,
+        max_words: int = 90,
+        overlap_words: int = 18,
+    ) -> list[int]:
+        """Batch-embed changed chunks before opening the database write transaction."""
+        changed: list[tuple[Document, list[PreparedChunk]]] = []
+        counts: list[int] = []
+        for document in documents:
+            chunks = prepare_document(document, max_words=max_words, overlap_words=overlap_words)
+            current = self.connection.execute(
+                """SELECT chunk_id, source_hash, version, effective_date, status,
+                          classification, embedding_model
+                   FROM chunks
+                   WHERE tenant_id = ? AND source_id = ? AND status = 'active'""",
+                (document.tenant_id, document.source_id),
+            ).fetchall()
+            expected_ids = {chunk.chunk_id for chunk in chunks}
+            unchanged = len(current) == len(chunks) and {row["chunk_id"] for row in current} == expected_ids
+            if unchanged:
+                unchanged = all(
+                    row["source_hash"] == chunks[0].source_hash
+                    and row["version"] == document.version
+                    and row["effective_date"] == document.effective_date
+                    and row["status"] == document.status
+                    and row["classification"] == document.classification
+                    and row["embedding_model"] == self.embedder.model_id
+                    for row in current
+                ) if current else True
+            if unchanged:
+                counts.append(0)
+            else:
+                counts.append(len(chunks))
+                changed.append((document, chunks))
+
+        all_chunks = [chunk for _, chunks in changed for chunk in chunks]
+        if not all_chunks:
+            return counts
+        embed_documents = getattr(self.embedder, "embed_documents", None)
+        if callable(embed_documents):
+            vectors = list(embed_documents([chunk.text for chunk in all_chunks]))
+        else:
+            vectors = [self.embedder.embed(chunk.text) for chunk in all_chunks]
+        if len(vectors) != len(all_chunks):
+            raise RuntimeError("Embedder returned a different number of vectors than input documents.")
+        dimensions = len(vectors[0])
+        if dimensions == 0 or any(len(vector) != dimensions for vector in vectors):
+            raise RuntimeError("Embedder returned empty or inconsistent vector dimensions.")
+        if any(not math.isfinite(value) for vector in vectors for value in vector):
+            raise RuntimeError("Embedder returned a non-finite vector value.")
+
+        vector_index = 0
         with self.connection:
-            if document.status == "active":
-                self.connection.execute(
-                    "UPDATE chunks SET status = 'superseded' WHERE tenant_id = ? AND source_id = ? AND status = 'active'",
-                    (document.tenant_id, document.source_id),
-                )
-            for chunk in chunks:
-                vector = self.embedder.embed(chunk.text)
-                self.connection.execute(
-                    """
-                    INSERT OR REPLACE INTO chunks (
-                        chunk_id, source_id, tenant_id, version, effective_date, status,
-                        classification, source_hash, section_path, text,
-                        embedding_model, embedding_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        chunk.chunk_id,
-                        chunk.source_id,
-                        chunk.tenant_id,
-                        chunk.version,
-                        chunk.effective_date,
-                        chunk.status,
-                        chunk.classification,
-                        chunk.source_hash,
-                        chunk.section_path,
-                        chunk.text,
-                        self.embedder.model_id,
-                        json.dumps(vector, separators=(",", ":")),
-                    ),
-                )
-        return len(chunks)
+            for document, chunks in changed:
+                if document.status == "active":
+                    self.connection.execute(
+                        "UPDATE chunks SET status = 'superseded' WHERE tenant_id = ? AND source_id = ? AND status = 'active'",
+                        (document.tenant_id, document.source_id),
+                    )
+                for chunk in chunks:
+                    vector = vectors[vector_index]
+                    vector_index += 1
+                    self.connection.execute(
+                        """
+                        INSERT OR REPLACE INTO chunks (
+                            chunk_id, source_id, tenant_id, version, effective_date, status,
+                            classification, source_hash, section_path, text,
+                            embedding_model, embedding_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            chunk.chunk_id,
+                            chunk.source_id,
+                            chunk.tenant_id,
+                            chunk.version,
+                            chunk.effective_date,
+                            chunk.status,
+                            chunk.classification,
+                            chunk.source_hash,
+                            chunk.section_path,
+                            chunk.text,
+                            self.embedder.model_id,
+                            json.dumps(vector, separators=(",", ":")),
+                        ),
+                    )
+        return counts
 
     def supersede_source(self, *, tenant_id: str, source_id: str) -> int:
         """Remove a source from active retrieval while retaining its indexed history."""
@@ -354,6 +399,7 @@ class SQLiteVectorStore:
         allowed_classifications: Sequence[str],
         top_k: int = 4,
         min_score: float = 0.0,
+        query_vector: Sequence[float] | None = None,
     ) -> list[SearchHit]:
         if not tenant_id:
             raise ValueError("A trusted tenant_id is required; it cannot come from model text.")
@@ -374,15 +420,20 @@ class SQLiteVectorStore:
                   AND embedding_model = ?""",
             (tenant_id, *classes, self.embedder.model_id),
         ).fetchall()
-        query_vector = self.embedder.embed(query)
-        if not any(query_vector):
+        embed_query = getattr(self.embedder, "embed_query", None)
+        vector = list(query_vector) if query_vector is not None else (
+            embed_query(query) if callable(embed_query) else self.embedder.embed(query)
+        )
+        if not vector or any(not math.isfinite(value) for value in vector):
+            raise ValueError("query_vector must contain finite values.")
+        if not any(vector):
             return []
         scored: list[tuple[float, sqlite3.Row]] = []
         for row in rows:
             candidate = json.loads(row["embedding_json"])
-            if len(candidate) != len(query_vector):
+            if len(candidate) != len(vector):
                 raise RuntimeError("Stored vector dimensions do not match the configured embedder.")
-            score = sum(left * right for left, right in zip(query_vector, candidate))
+            score = sum(left * right for left, right in zip(vector, candidate))
             if score >= min_score:
                 scored.append((score, row))
         scored.sort(key=lambda pair: (-pair[0], pair[1]["chunk_id"]))
@@ -487,6 +538,7 @@ class SQLiteVectorStore:
         min_dense_score: float = 0.0,
         lexical_relative_score_floor: float = 0.0,
         rank_constant: int = 60,
+        query_vector: Sequence[float] | None = None,
     ) -> list[SearchHit]:
         """Fuse dense and BM25 ranks with reciprocal-rank fusion."""
         if rank_constant < 1:
@@ -500,6 +552,7 @@ class SQLiteVectorStore:
             allowed_classifications=allowed_classifications,
             top_k=candidate_k,
             min_score=min_dense_score,
+            query_vector=query_vector,
         )
         lexical = self.search_lexical(
             tenant_id=tenant_id,

@@ -66,7 +66,7 @@ The positive-source coverage is not the whole story: lexical search retrieved al
 |---|---|---|
 | Live model behavior | Fake Anthropic client only | Account-enabled multi-trial run, full trace review, grader calibration, and workflow comparison on representative cases |
 | Prompt caching savings | Request block and usage parsing tested with fake client | Repeated live calls with nonzero cache read/write tokens, current rate card, and controlled cost/latency comparison |
-| Semantic RAG quality | Deterministic feature-hashing path | Real embedding provider(s), representative labeled corpus, fresh held-out queries, filtered Recall@k and answer-grounding evaluation |
+| Semantic RAG quality | Deterministic feature-hashing path; optional Voyage HTTP adapter added but not called | Provider run on development data, representative labeled corpus, fresh held-out queries, filtered Recall@k and answer-grounding evaluation |
 | Vector scale/performance | SQLite exact scan over eligible rows | Chosen vector service/database, filtered recall, p95/p99 latency, concurrency, backup/rebuild, deletion and rollback drills |
 | Identity and tenant isolation | Synthetic subject IDs and local ownership rules | Real identity propagation plus service-boundary integration tests, revocation and replay cases |
 | Concurrent durable work | Single-worker simulated restarts and outbox leases | Multi-worker run claims, fencing/CAS, queue duplicate delivery, stale lease, and race tests |
@@ -77,7 +77,7 @@ The positive-source coverage is not the whole story: lexical search retrieved al
 ## Recommended next experiments
 
 1. **Improve the RAG benchmark before tuning:** the expanded set now covers multiple topics, one superseded version, paraphrases, hard negatives, multi-source questions, and tenant/classification filters. Add longer layout-rich sources, near-duplicates, conflicting active sources, more languages/modalities, and more independent labels. Freeze a new holdout before tuning chunking or thresholds.
-2. **Add real embeddings as a separate adapter:** keep ingestion, metadata filters, and evaluators constant. Compare a chosen provider's model with lexical search using relevance, filtered recall, no-answer precision/recall, answer grounding, latency, and cost.
+2. **Evaluate the optional real-embedding adapter:** the repository now includes a standard-library Voyage adapter with batched document/query modes. Configure credentials outside Git and run it on development data; keep ingestion, metadata filters, and evaluators constant. Compare the provider model with lexical search using relevance, filtered recall, no-answer precision/recall, answer grounding, latency, and cost, then freeze a new independent holdout.
 3. **Add calibrated abstention:** set thresholds on a development set; report false answer vs abstention trade-offs on holdout. Keep access control separate from relevance scoring.
 4. **Expand support-agent cases:** create mixed-intent and ambiguous tasks, current-state changes, stale evidence, access revocation during a run, and incomplete tool responses. Run the workflow baseline first; then run the Anthropic planner on the identical cases when credentials/account access are available.
 5. **Only then test live prompt caching:** repeat a fixed case order, compare disabled/enabled requests and cache metrics, price the cache writes/reads from the active rate card, and include full task quality and latency.

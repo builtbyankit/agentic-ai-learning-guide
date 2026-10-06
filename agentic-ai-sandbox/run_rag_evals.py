@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from rag_pipeline import HashingEmbedder, SQLiteVectorStore, load_manifest_documents, normalize_text
+from voyage_embedder import VoyageEmbedder
 
 
 CHUNK_MAX_WORDS = 90
@@ -21,6 +22,7 @@ def evaluate_dataset(
     *,
     retriever: str = "dense",
     manifest_path: str | Path | None = None,
+    embedder: Any | None = None,
 ) -> dict[str, Any]:
     scenarios = dataset["scenarios"]
     if not scenarios:
@@ -32,6 +34,9 @@ def evaluate_dataset(
         raise ValueError("top_k must be between 1 and 50")
     if retriever not in {"dense", "lexical", "hybrid"}:
         raise ValueError("retriever must be dense, lexical, or hybrid")
+    embedder = embedder or HashingEmbedder()
+    if retriever == "lexical" and isinstance(embedder, VoyageEmbedder):
+        raise ValueError("Lexical retrieval does not use embeddings; choose --embedding-provider hashing.")
 
     manifest = Path(manifest_path) if manifest_path is not None else Path("knowledge/manifest.json")
     if not manifest.is_absolute():
@@ -57,11 +62,20 @@ def evaluate_dataset(
     dataset_fingerprint = hashlib.sha256(
         json.dumps(dataset, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-    embedder = HashingEmbedder()
     with tempfile.TemporaryDirectory() as temporary:
         store = SQLiteVectorStore(Path(temporary) / "rag-eval.sqlite", embedder)
-        for document in documents:
-            store.ingest(document, max_words=CHUNK_MAX_WORDS, overlap_words=CHUNK_OVERLAP_WORDS)
+        store.ingest_many(documents, max_words=CHUNK_MAX_WORDS, overlap_words=CHUNK_OVERLAP_WORDS)
+        query_vectors: list[list[float] | None]
+        if retriever == "lexical":
+            query_vectors = [None] * len(scenarios)
+        else:
+            batch_queries = getattr(embedder, "embed_queries", None)
+            query_texts = [scenario["query"] for scenario in scenarios]
+            query_vectors = (
+                batch_queries(query_texts)
+                if callable(batch_queries)
+                else [embedder.embed(query) for query in query_texts]
+            )
 
         reports: list[dict[str, Any]] = []
         positive = 0
@@ -77,7 +91,7 @@ def evaluate_dataset(
         required_source_coverage = 0
         positive_source_coverage = 0
 
-        for scenario in scenarios:
+        for scenario_index, scenario in enumerate(scenarios):
             expected = set(scenario["expected_source_ids"])
             expected_versions = scenario.get("expected_versions", {})
             case_type = scenario.get("case_type", "positive" if expected else "no_answer")
@@ -95,7 +109,11 @@ def evaluate_dataset(
                 "top_k": int(scenario.get("top_k", top_k)),
             }
             if retriever == "dense":
-                hits = store.search(**search_options, min_score=float(scenario.get("min_score", min_score)))
+                hits = store.search(
+                    **search_options,
+                    min_score=float(scenario.get("min_score", min_score)),
+                    query_vector=query_vectors[scenario_index],
+                )
             elif retriever == "lexical":
                 hits = store.search_lexical(
                     **search_options,
@@ -107,6 +125,7 @@ def evaluate_dataset(
                 hits = store.search_hybrid(
                     **search_options,
                     min_dense_score=float(scenario.get("min_score", min_score)),
+                    query_vector=query_vectors[scenario_index],
                     lexical_relative_score_floor=float(
                         scenario.get("lexical_relative_score_floor", lexical_relative_score_floor)
                     ),
@@ -185,7 +204,10 @@ def evaluate_dataset(
         if manifest.is_relative_to(Path(__file__).parent)
         else manifest.name,
         "retriever": retriever,
+        "embedding_provider": "voyage" if isinstance(embedder, VoyageEmbedder) else "hashing",
         "embedder_model_id": embedder.model_id,
+        "embedding_request_count": int(getattr(embedder, "request_count", 0)),
+        "embedding_input_tokens": int(getattr(embedder, "input_tokens", 0)),
         "corpus_sha256": corpus_fingerprint,
         "dataset_sha256": dataset_fingerprint,
         "chunking": {"max_words": CHUNK_MAX_WORDS, "overlap_words": CHUNK_OVERLAP_WORDS},
@@ -209,7 +231,11 @@ def evaluate_dataset(
         "scenario_pass_rate": round(required_source_coverage / total, 4),
         "required_source_coverage_rate": round(positive_source_coverage / positive, 4) if positive else 0.0,
         "queries": reports,
-        "interpretation": "Synthetic plumbing baseline only; feature hashing is not semantic embedding.",
+        "interpretation": (
+            "Synthetic retrieval benchmark; provider metrics reflect this run only."
+            if isinstance(embedder, VoyageEmbedder)
+            else "Synthetic plumbing baseline only; feature hashing is not semantic embedding."
+        ),
     }
 
 
@@ -222,15 +248,35 @@ def main() -> int:
     )
     parser.add_argument("--retriever", choices=("dense", "lexical", "hybrid"), default="dense")
     parser.add_argument(
+        "--embedding-provider",
+        choices=("hashing", "voyage"),
+        default="hashing",
+        help="hashing is offline plumbing; voyage uses the configured VOYAGE_API_KEY and makes billable requests",
+    )
+    parser.add_argument("--embedding-model", default="voyage-4")
+    parser.add_argument("--embedding-endpoint", help="Optional Voyage-compatible endpoint override")
+    parser.add_argument(
         "--manifest",
         default="knowledge/manifest.json",
         help="Knowledge manifest path relative to this folder (defaults to the small demo corpus)",
     )
     parser.add_argument("--output", help="Optional JSON report path for review or regression storage")
     args = parser.parse_args()
+    if args.retriever == "lexical" and args.embedding_provider == "voyage":
+        parser.error("lexical retrieval does not use embeddings; select --embedding-provider hashing")
     dataset_path = Path(__file__).parent / args.dataset
     dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
-    report = evaluate_dataset(dataset, retriever=args.retriever, manifest_path=args.manifest)
+    embedder = (
+        VoyageEmbedder(model=args.embedding_model, endpoint=args.embedding_endpoint)
+        if args.embedding_provider == "voyage"
+        else HashingEmbedder()
+    )
+    report = evaluate_dataset(
+        dataset,
+        retriever=args.retriever,
+        manifest_path=args.manifest,
+        embedder=embedder,
+    )
     for query in report["queries"]:
         state = "PASS" if query["pass"] else "GAP"
         print(
@@ -248,6 +294,10 @@ def main() -> int:
         f"authorization leaks={report['unauthorized_source_leaks']}/{report['authorization_queries']}"
     )
     print(report["interpretation"])
+    print(
+        f"embedding requests={report['embedding_request_count']} "
+        f"input tokens={report['embedding_input_tokens']}"
+    )
     print(f"corpus sha256={report['corpus_sha256']} dataset sha256={report['dataset_sha256']}")
     if args.output:
         output_path = Path(args.output)
