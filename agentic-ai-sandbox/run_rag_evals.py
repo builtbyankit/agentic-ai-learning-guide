@@ -1,4 +1,4 @@
-"""Evaluate the local RAG baseline against a small, versioned synthetic set."""
+"""Evaluate local RAG retrievers against versioned synthetic corpora and scenarios."""
 
 from __future__ import annotations
 
@@ -16,7 +16,12 @@ CHUNK_MAX_WORDS = 90
 CHUNK_OVERLAP_WORDS = 18
 
 
-def evaluate_dataset(dataset: dict[str, Any], *, retriever: str = "dense") -> dict[str, Any]:
+def evaluate_dataset(
+    dataset: dict[str, Any],
+    *,
+    retriever: str = "dense",
+    manifest_path: str | Path | None = None,
+) -> dict[str, Any]:
     scenarios = dataset["scenarios"]
     if not scenarios:
         raise ValueError("RAG evaluation dataset must not be empty")
@@ -28,7 +33,10 @@ def evaluate_dataset(dataset: dict[str, Any], *, retriever: str = "dense") -> di
     if retriever not in {"dense", "lexical", "hybrid"}:
         raise ValueError("retriever must be dense, lexical, or hybrid")
 
-    documents = load_manifest_documents(Path(__file__).with_name("knowledge") / "manifest.json")
+    manifest = Path(manifest_path) if manifest_path is not None else Path("knowledge/manifest.json")
+    if not manifest.is_absolute():
+        manifest = Path(__file__).parent / manifest
+    documents = load_manifest_documents(manifest)
     corpus_records = [
         {
             "source_id": document.source_id,
@@ -64,10 +72,20 @@ def evaluate_dataset(dataset: dict[str, Any], *, retriever: str = "dense") -> di
         returned_total = 0
         empty_total = 0
         empty_correct = 0
+        authorization_total = 0
+        authorization_violations = 0
         required_source_coverage = 0
+        positive_source_coverage = 0
 
         for scenario in scenarios:
             expected = set(scenario["expected_source_ids"])
+            expected_versions = scenario.get("expected_versions", {})
+            case_type = scenario.get("case_type", "positive" if expected else "no_answer")
+            if case_type not in {"positive", "no_answer", "authorization"}:
+                raise ValueError(f"Unsupported case_type {case_type!r} in {scenario['id']}.")
+            forbidden_sources = set(scenario.get("forbidden_source_ids", []))
+            if case_type == "authorization" and not forbidden_sources:
+                raise ValueError(f"Authorization case {scenario['id']} must name forbidden_source_ids.")
             search_options = {
                 "tenant_id": scenario.get("tenant_id", "demo-tenant"),
                 "query": scenario["query"],
@@ -98,10 +116,27 @@ def evaluate_dataset(dataset: dict[str, Any], *, retriever: str = "dense") -> di
                 if hit.source_id not in retrieved:
                     retrieved.append(hit.source_id)
             retrieved_set = set(retrieved)
-            is_covered = expected <= retrieved_set if expected else not retrieved
+            retrieved_versions = {
+                hit.source_id: hit.version for hit in hits if hit.source_id in retrieved_set
+            }
+            versions_match = all(
+                retrieved_versions.get(source_id) == version
+                for source_id, version in expected_versions.items()
+            )
+            if case_type == "positive":
+                is_covered = bool(expected) and expected <= retrieved_set and versions_match
+            elif case_type == "no_answer":
+                is_covered = not retrieved
+            else:
+                authorization_total += 1
+                leaked_sources = forbidden_sources & retrieved_set
+                authorization_violations += int(bool(leaked_sources))
+                is_covered = expected <= retrieved_set and versions_match and not leaked_sources
             required_source_coverage += int(is_covered)
+            if case_type == "positive" or (case_type == "authorization" and expected):
+                positive_source_coverage += int(expected <= retrieved_set and versions_match)
 
-            if expected:
+            if case_type == "positive" or (case_type == "authorization" and expected):
                 positive += 1
                 relevant_total += len(expected & retrieved_set)
                 returned_total += len(retrieved)
@@ -111,15 +146,19 @@ def evaluate_dataset(dataset: dict[str, Any], *, retriever: str = "dense") -> di
                     (1.0 / rank for rank, source_id in enumerate(retrieved, start=1) if source_id in expected),
                     0.0,
                 )
-            else:
+            elif case_type == "no_answer":
                 empty_total += 1
                 empty_correct += int(not retrieved)
 
             reports.append(
                 {
                     "id": scenario["id"],
+                    "case_type": case_type,
                     "expected_source_ids": sorted(expected),
+                    "expected_versions": dict(sorted(expected_versions.items())),
+                    "forbidden_source_ids": sorted(forbidden_sources),
                     "retrieved_source_ids": retrieved,
+                    "retrieved_versions": retrieved_versions,
                     "retrieved_chunks": [
                         {
                             "chunk_id": hit.chunk_id,
@@ -142,6 +181,9 @@ def evaluate_dataset(dataset: dict[str, Any], *, retriever: str = "dense") -> di
     return {
         "dataset_version": dataset["dataset_version"],
         "split": dataset.get("split", "unspecified"),
+        "manifest": str(manifest.relative_to(Path(__file__).parent))
+        if manifest.is_relative_to(Path(__file__).parent)
+        else manifest.name,
         "retriever": retriever,
         "embedder_model_id": embedder.model_id,
         "corpus_sha256": corpus_fingerprint,
@@ -153,12 +195,19 @@ def evaluate_dataset(dataset: dict[str, Any], *, retriever: str = "dense") -> di
         "total_queries": total,
         "positive_queries": positive,
         "empty_queries": empty_total,
+        "authorization_queries": authorization_total,
+        "unauthorized_source_leaks": authorization_violations,
+        "authorization_isolation_rate": round(
+            (authorization_total - authorization_violations) / authorization_total, 4
+        ) if authorization_total else None,
         "hit_at_1": round(hits_at_1 / positive, 4) if positive else 0.0,
         "mean_recall_at_k": round(recall_sum / positive, 4) if positive else 0.0,
         "mean_reciprocal_rank": round(reciprocal_rank_sum / positive, 4) if positive else 0.0,
+        "unique_source_precision_micro": round(relevant_total / returned_total, 4) if returned_total else 0.0,
         "precision_at_k_micro": round(relevant_total / returned_total, 4) if returned_total else 0.0,
         "empty_query_accuracy": round(empty_correct / empty_total, 4) if empty_total else None,
-        "required_source_coverage_rate": round(required_source_coverage / total, 4),
+        "scenario_pass_rate": round(required_source_coverage / total, 4),
+        "required_source_coverage_rate": round(positive_source_coverage / positive, 4) if positive else 0.0,
         "queries": reports,
         "interpretation": "Synthetic plumbing baseline only; feature hashing is not semantic embedding.",
     }
@@ -172,24 +221,31 @@ def main() -> int:
         help="Dataset path relative to this folder (defaults to the holdout set)",
     )
     parser.add_argument("--retriever", choices=("dense", "lexical", "hybrid"), default="dense")
+    parser.add_argument(
+        "--manifest",
+        default="knowledge/manifest.json",
+        help="Knowledge manifest path relative to this folder (defaults to the small demo corpus)",
+    )
     parser.add_argument("--output", help="Optional JSON report path for review or regression storage")
     args = parser.parse_args()
     dataset_path = Path(__file__).parent / args.dataset
     dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
-    report = evaluate_dataset(dataset, retriever=args.retriever)
+    report = evaluate_dataset(dataset, retriever=args.retriever, manifest_path=args.manifest)
     for query in report["queries"]:
         state = "PASS" if query["pass"] else "GAP"
         print(
             f"{state}  {query['id']}: expected={query['expected_source_ids']} "
-            f"retrieved={query['retrieved_source_ids']} scores={query['scores']}"
+            f"retrieved={query['retrieved_source_ids']} versions={query['retrieved_versions']} scores={query['scores']}"
         )
     print(
         f"\n{report['dataset_version']} / {report['split']} ({report['retriever']}; {report['embedder_model_id']}): "
-        f"required-source coverage={report['required_source_coverage_rate']:.0%}; Hit@1={report['hit_at_1']:.0%}; "
+        f"scenario pass={report['scenario_pass_rate']:.0%}; source coverage={report['required_source_coverage_rate']:.0%}; "
+        f"Hit@1={report['hit_at_1']:.0%}; "
         f"Recall@{report['top_k_chunks']} sources={report['mean_recall_at_k']:.0%}; "
         f"MRR={report['mean_reciprocal_rank']:.3f}; "
-        f"empty-query accuracy={report['empty_query_accuracy']:.0%}; "
-        f"precision={report['precision_at_k_micro']:.0%}"
+        f"no-answer accuracy={report['empty_query_accuracy']:.0%}; "
+        f"unique-source precision={report['unique_source_precision_micro']:.0%}; "
+        f"authorization leaks={report['unauthorized_source_leaks']}/{report['authorization_queries']}"
     )
     print(report["interpretation"])
     print(f"corpus sha256={report['corpus_sha256']} dataset sha256={report['dataset_sha256']}")
@@ -198,7 +254,7 @@ def main() -> int:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(f"Saved RAG evaluation report to {output_path}")
-    return 0 if report["required_source_coverage_rate"] == 1.0 else 1
+    return 0 if report["scenario_pass_rate"] == 1.0 else 1
 
 
 if __name__ == "__main__":

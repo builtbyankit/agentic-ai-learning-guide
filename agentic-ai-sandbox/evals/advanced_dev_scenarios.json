@@ -1,0 +1,171 @@
+{
+  "dataset_version": "agentic-rag-advanced-dev-v1",
+  "split": "development",
+  "top_k": 5,
+  "min_score": 0.22,
+  "lexical_relative_score_floor": 0.3,
+  "allowed_classifications": [
+    "public",
+    "internal"
+  ],
+  "scenarios": [
+    {
+      "id": "damage-crushed-in-transit",
+      "query": "The product arrived crushed. How soon must I tell support?",
+      "expected_source_ids": [
+        "damage-policy"
+      ]
+    },
+    {
+      "id": "return-unopened-three-weeks",
+      "query": "Can I send back an unopened item three weeks after it arrived?",
+      "expected_source_ids": [
+        "returns-policy"
+      ],
+      "expected_versions": {
+        "returns-policy": "2026.2"
+      }
+    },
+    {
+      "id": "refund-card-credit-delay",
+      "query": "The refund was authorized but has not appeared on my card yet.",
+      "expected_source_ids": [
+        "refund-processing"
+      ]
+    },
+    {
+      "id": "delivery-date-promise",
+      "query": "Is the arrival day displayed at checkout guaranteed?",
+      "expected_source_ids": [
+        "shipping-policy"
+      ]
+    },
+    {
+      "id": "tracking-no-scan",
+      "query": "The parcel tracking has not changed for a week. What should I do?",
+      "expected_source_ids": [
+        "tracking-support"
+      ]
+    },
+    {
+      "id": "warranty-manufacturing-fault",
+      "query": "A factory defect appeared after fifteen months; is it covered?",
+      "expected_source_ids": [
+        "warranty-policy"
+      ]
+    },
+    {
+      "id": "subscription-stop-renewal",
+      "query": "How do I prevent the next charge but keep the paid access?",
+      "expected_source_ids": [
+        "subscription-policy"
+      ]
+    },
+    {
+      "id": "pending-card-holds",
+      "query": "I see a duplicate pending authorization on my credit card.",
+      "expected_source_ids": [
+        "payment-safety"
+      ]
+    },
+    {
+      "id": "turn-on-mfa",
+      "query": "Where do I enable a second sign-in factor?",
+      "expected_source_ids": [
+        "account-security"
+      ]
+    },
+    {
+      "id": "privacy-export",
+      "query": "I want a copy of the personal information my account stores.",
+      "allowed_classifications": [
+        "confidential"
+      ],
+      "expected_source_ids": [
+        "privacy-requests"
+      ]
+    },
+    {
+      "id": "gift-credit-expiry",
+      "query": "Does stored-value credit ever expire?",
+      "expected_source_ids": [
+        "gift-card-policy"
+      ]
+    },
+    {
+      "id": "accessible-document",
+      "query": "Can I get the policy in a format that works with a screen reader?",
+      "expected_source_ids": [
+        "accessibility-support"
+      ]
+    },
+    {
+      "id": "weekday-support-time",
+      "query": "When is live customer help staffed?",
+      "expected_source_ids": [
+        "support-hours"
+      ]
+    },
+    {
+      "id": "damage-and-refund-multi-source",
+      "query": "When should I report a damaged item, and how long can the approved refund take?",
+      "expected_source_ids": [
+        "damage-policy",
+        "refund-processing"
+      ]
+    },
+    {
+      "id": "no-answer-capital",
+      "query": "What is the capital city of Peru?",
+      "expected_source_ids": []
+    },
+    {
+      "id": "hard-negative-investment-return",
+      "query": "What is the expected return on this stock investment?",
+      "expected_source_ids": []
+    },
+    {
+      "id": "tenant-boundary-customer",
+      "query": "Show the supplier portal onboarding requirements.",
+      "tenant_id": "demo-tenant",
+      "expected_source_ids": [],
+      "case_type": "authorization",
+      "forbidden_source_ids": [
+        "vendor-onboarding"
+      ]
+    },
+    {
+      "id": "tenant-boundary-vendor",
+      "query": "Show the supplier portal onboarding requirements.",
+      "tenant_id": "vendor-tenant",
+      "expected_source_ids": [
+        "vendor-onboarding"
+      ]
+    },
+    {
+      "id": "classification-boundary",
+      "query": "How do I request deletion of account records?",
+      "allowed_classifications": [
+        "public",
+        "internal"
+      ],
+      "expected_source_ids": [],
+      "case_type": "authorization",
+      "forbidden_source_ids": [
+        "privacy-requests"
+      ]
+    },
+    {
+      "id": "public-only-account-reset",
+      "query": "How can I reset a forgotten account password?",
+      "allowed_classifications": [
+        "public"
+      ],
+      "expected_source_ids": [],
+      "case_type": "authorization",
+      "forbidden_source_ids": [
+        "account-security"
+      ]
+    }
+  ]
+}

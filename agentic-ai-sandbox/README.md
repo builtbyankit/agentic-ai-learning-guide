@@ -81,9 +81,14 @@ python3 run_rag_evals.py --retriever lexical
 python3 run_rag_evals.py --retriever hybrid
 python3 run_rag_evals.py --retriever lexical --output rag-eval.json
 python3 run_rag_evals.py --dataset evals/rag_scenarios.json --retriever hybrid
+python3 run_rag_evals.py --manifest knowledge/advanced/manifest.json --dataset evals/advanced_dev_scenarios.json --retriever lexical
+python3 run_rag_evals.py --manifest knowledge/advanced/manifest.json --dataset evals/advanced_holdout_scenarios.json --retriever lexical
+python3 run_rag_evals.py --manifest knowledge/advanced/manifest.json --dataset evals/advanced_holdout_scenarios.json --retriever hybrid
 ```
 
-The default evaluator uses the holdout dataset with the dense placeholder and currently reports known relevance gaps (nonzero exit). On the authored 10-query set, the lexical baseline reached 100% required-source coverage and 100% empty-query accuracy, while hybrid RRF reached 90% and 75%, respectively. See Module 11 for all metrics and limits; these are instructional results on two short synthetic documents, not production evidence.
+The default evaluator uses the small holdout dataset and the dense placeholder, and reports known relevance gaps (nonzero exit). Its 10 queries over two short documents are retained as the minimal plumbing example. On this set, lexical retrieval passes all scenarios with 100% positive-source coverage and no-answer accuracy; hybrid passes 90% of scenarios with 100% source coverage and 75% no-answer accuracy. The expanded benchmark uses 15 manifest entries (including one superseded version) and separate 20-query development and holdout sets. It tests paraphrases, multi-source questions, stale versions, no-answer hard negatives, classification filters, and tenant isolation. The evaluator accepts `--manifest` to point at a different synthetic or sanitized corpus.
+
+The advanced holdout currently reports, for dense / lexical / hybrid respectively: scenario pass 50% / 95% / 90%; required positive-source coverage 50% / 100% / 100%; no-answer accuracy 0% / 50% / 0%; and authorization leaks 0/2 for each. These authored synthetic results are diagnostic, not generalization or production evidence. Lexical retrieval currently fails the investment-return hard negative; dense and hybrid return too much irrelevant material and fail both no-answer examples. Use the separate `authorization leaks` metric to distinguish forbidden-source disclosure from ordinary relevance false positives. See [Module 11](../agentic-ai-module-11-data-rag-and-optimization.md) and the [evaluation data guide](evals/README.md) for limitations and interpretation.
 
 Check repeated-trial aggregation without making an API request:
 

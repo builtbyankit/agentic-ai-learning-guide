@@ -167,7 +167,28 @@ python3 run_rag_evals.py --dataset evals/rag_scenarios.json --retriever hybrid
 
 The first demo run creates `rag-demo.sqlite` in the current directory. The demo derives a stable chunk ID, preserves heading path and policy version, embeds the chunk, stores vector plus metadata, and runs tenant-scoped cosine search. The sample classifier is synthetic. The `another-tenant` query returns no evidence because its trusted scope does not match. `run_rag_checks.py` exercises the local storage and access contract. `run_rag_evals.py` defaults to the holdout set and supports `dense`, `lexical`, or `hybrid`; the development set is selectable by path. Its optional JSON output includes corpus/dataset fingerprints and retrieved chunk IDs with source metadata for trace review. A `GAP` and nonzero exit code show retrieval misses or false positives, not a code crash.
 
-On `rag-retrieval-holdout-v2` (ten synthetic queries, two short policy documents, and a feature-hashing placeholder), the measured results were: dense required-source coverage 60% and empty-query accuracy 75%; BM25-style lexical coverage 100%, empty-query accuracy 100%, and positive-query precision 89%; hybrid RRF coverage 90%, empty-query accuracy 75%, and positive-query precision 89%. This demonstrates threshold and retrieval trade-offs on this tiny authored set only. It does not establish performance on real data or evaluate a semantic embedding model. In particular, the placeholder dense path returned a false positive for an unrelated capital-city query, and RRF carried that false positive through.
+On `rag-retrieval-holdout-v2` (ten synthetic queries, two short policy documents, and a feature-hashing placeholder), dense scored 60% overall scenario pass, 50% positive-source coverage, and 75% no-answer accuracy; BM25-style lexical scored 100% on scenario pass and positive-source coverage, 100% no-answer accuracy, and 89% unique-source precision; hybrid RRF scored 90% scenario pass, 100% positive-source coverage, 75% no-answer accuracy, and 89% unique-source precision. This demonstrates threshold and retrieval trade-offs on this tiny authored set only. It does not establish performance on real data or evaluate a semantic embedding model. In particular, the placeholder dense path returned a false positive for an unrelated capital-city query, and RRF carried that false positive through.
+
+### Expanded corpus evaluation
+
+To make retrieval review more representative, the sandbox now also includes 15 manifest entries over multiple support topics, one superseded policy version, three classifications, and two tenants. The advanced development and holdout sets each have 20 queries. They cover paraphrase, multi-source retrieval, current-version requirements, hard negatives, no-answer behavior, and access-scope checks. `run_rag_evals.py --manifest knowledge/advanced/manifest.json` selects this corpus. The evaluator grades expected source versions and records forbidden-source leakage separately from relevance false positives.
+
+On `agentic-rag-advanced-holdout-v1`, the measured dense / lexical / hybrid results were:
+
+| Metric | Dense feature hash | BM25-style lexical | Hybrid RRF |
+|---|---:|---:|---:|
+| Scenario pass | 50% | 95% | 90% |
+| Required positive-source coverage | 50% | 100% | 100% |
+| Hit@1 | 25% | 81% | 69% |
+| Recall@5 sources | 50% | 100% | 100% |
+| MRR | .339 | .877 | .804 |
+| No-answer accuracy | 0% | 50% | 0% |
+| Unique-source precision | 31% | 34% | 31% |
+| Forbidden-source leaks | 0/2 | 0/2 | 0/2 |
+
+The lexical baseline ranked every required source in this authored holdout but returned irrelevant sources and failed one hard-negative query. Dense and hybrid retrieval failed to abstain on the two no-answer cases; hybrid inherited lexical and dense candidates. The authorization cases showed no forbidden-source leakage under the tested filters, but two cases are far too few to establish tenant isolation. These results make the next step clear: improve negative-query threshold calibration, then compare with a real embedding model on a larger independent corpus. The feature-hashing dense result remains a plumbing diagnostic, not semantic retrieval evidence.
+
+`advanced_holdout_v1` has now been inspected and should be treated as a regression set, not an untouched benchmark for future tuning. Preserve a new holdout version for the next retrieval-model or threshold decision.
 
 Explore the code in [rag_pipeline.py](agentic-ai-sandbox/rag_pipeline.py). Then extend the exercise:
 

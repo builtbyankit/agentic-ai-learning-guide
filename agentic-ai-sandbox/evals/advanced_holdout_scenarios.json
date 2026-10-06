@@ -1,0 +1,169 @@
+{
+  "dataset_version": "agentic-rag-advanced-holdout-v1",
+  "split": "holdout",
+  "top_k": 5,
+  "min_score": 0.22,
+  "lexical_relative_score_floor": 0.3,
+  "allowed_classifications": [
+    "public",
+    "internal"
+  ],
+  "scenarios": [
+    {
+      "id": "holdout-arrival-dented",
+      "query": "A box arrived damaged. By when should I report it?",
+      "expected_source_ids": [
+        "damage-policy"
+      ]
+    },
+    {
+      "id": "holdout-return-sealed-item",
+      "query": "What is the current window for returning sealed merchandise?",
+      "expected_source_ids": [
+        "returns-policy"
+      ],
+      "expected_versions": {
+        "returns-policy": "2026.2"
+      }
+    },
+    {
+      "id": "holdout-legacy-window",
+      "query": "Does the old sixty-day return rule still apply?",
+      "expected_source_ids": [
+        "returns-policy"
+      ],
+      "expected_versions": {
+        "returns-policy": "2026.2"
+      }
+    },
+    {
+      "id": "holdout-credit-not-posted",
+      "query": "My bank has not posted an approved reimbursement.",
+      "expected_source_ids": [
+        "refund-processing"
+      ]
+    },
+    {
+      "id": "holdout-delivery-guarantee",
+      "query": "Can the carrier arrival estimate be relied on as a promise?",
+      "expected_source_ids": [
+        "shipping-policy"
+      ]
+    },
+    {
+      "id": "holdout-stale-carrier-status",
+      "query": "The shipment has been stuck at one facility scan for six weekdays.",
+      "expected_source_ids": [
+        "tracking-support"
+      ]
+    },
+    {
+      "id": "holdout-defect-after-sixteen-months",
+      "query": "Is a manufacturing problem found sixteen months after buying still under warranty?",
+      "expected_source_ids": [
+        "warranty-policy"
+      ]
+    },
+    {
+      "id": "holdout-recurring-plan",
+      "query": "I want to stop automatic renewal and use the rest of the month I paid for.",
+      "expected_source_ids": [
+        "subscription-policy"
+      ]
+    },
+    {
+      "id": "holdout-two-settled-charges",
+      "query": "Two card transactions completed for one purchase. Who investigates?",
+      "expected_source_ids": [
+        "payment-safety"
+      ]
+    },
+    {
+      "id": "holdout-new-phone-auth",
+      "query": "How can I add a verification step when signing in on a new device?",
+      "expected_source_ids": [
+        "account-security"
+      ]
+    },
+    {
+      "id": "holdout-delete-records",
+      "query": "Please tell me how to erase data saved about me.",
+      "allowed_classifications": [
+        "confidential"
+      ],
+      "expected_source_ids": [
+        "privacy-requests"
+      ]
+    },
+    {
+      "id": "holdout-voucher-balance",
+      "query": "Can an unused store credit balance be spent later, or does it time out?",
+      "expected_source_ids": [
+        "gift-card-policy"
+      ]
+    },
+    {
+      "id": "holdout-keyboard-navigation",
+      "query": "The checkout page is difficult to use without a mouse. What help is available?",
+      "expected_source_ids": [
+        "accessibility-support"
+      ]
+    },
+    {
+      "id": "holdout-weekend-hours",
+      "query": "Is a live agent available on Saturday?",
+      "expected_source_ids": [
+        "support-hours"
+      ]
+    },
+    {
+      "id": "holdout-multi-policy",
+      "query": "How many days to report a damaged delivery and what wait for the card credit after approval?",
+      "expected_source_ids": [
+        "damage-policy",
+        "refund-processing"
+      ]
+    },
+    {
+      "id": "holdout-no-answer-moon",
+      "query": "How far away is the Moon from Earth?",
+      "expected_source_ids": []
+    },
+    {
+      "id": "holdout-hard-negative-refund-finance",
+      "query": "How do I calculate the return on an investment portfolio?",
+      "expected_source_ids": []
+    },
+    {
+      "id": "holdout-vendor-cross-tenant",
+      "query": "Which procurement portal handles vendor tax documents?",
+      "tenant_id": "demo-tenant",
+      "expected_source_ids": [],
+      "case_type": "authorization",
+      "forbidden_source_ids": [
+        "vendor-onboarding"
+      ]
+    },
+    {
+      "id": "holdout-vendor-own-tenant",
+      "query": "Which procurement portal handles vendor tax documents?",
+      "tenant_id": "vendor-tenant",
+      "expected_source_ids": [
+        "vendor-onboarding"
+      ]
+    },
+    {
+      "id": "holdout-confidential-filter",
+      "query": "Where can I download or erase my profile information?",
+      "allowed_classifications": [
+        "public",
+        "internal"
+      ],
+      "expected_source_ids": [],
+      "case_type": "authorization",
+      "forbidden_source_ids": [
+        "privacy-requests"
+      ]
+    }
+  ]
+}

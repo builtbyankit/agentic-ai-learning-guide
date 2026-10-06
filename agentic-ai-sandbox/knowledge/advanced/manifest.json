@@ -1,0 +1,137 @@
+[
+  {
+    "source_id": "damage-policy",
+    "path": "damage.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.2",
+    "effective_date": "2026-03-01",
+    "status": "active",
+    "classification": "internal"
+  },
+  {
+    "source_id": "returns-policy",
+    "path": "returns.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.2",
+    "effective_date": "2026-03-01",
+    "status": "active",
+    "classification": "internal"
+  },
+  {
+    "source_id": "returns-policy",
+    "path": "returns-archive.md",
+    "tenant_id": "demo-tenant",
+    "version": "2025.1",
+    "effective_date": "2025-01-01",
+    "status": "superseded",
+    "classification": "internal"
+  },
+  {
+    "source_id": "refund-processing",
+    "path": "refund-processing.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "internal"
+  },
+  {
+    "source_id": "shipping-policy",
+    "path": "shipping.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "internal"
+  },
+  {
+    "source_id": "tracking-support",
+    "path": "tracking.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "internal"
+  },
+  {
+    "source_id": "warranty-policy",
+    "path": "warranty.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "internal"
+  },
+  {
+    "source_id": "subscription-policy",
+    "path": "subscriptions.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "internal"
+  },
+  {
+    "source_id": "payment-safety",
+    "path": "payments.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "internal"
+  },
+  {
+    "source_id": "account-security",
+    "path": "account-security.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "internal"
+  },
+  {
+    "source_id": "privacy-requests",
+    "path": "privacy.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "confidential"
+  },
+  {
+    "source_id": "gift-card-policy",
+    "path": "gift-cards.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "public"
+  },
+  {
+    "source_id": "accessibility-support",
+    "path": "accessibility.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "public"
+  },
+  {
+    "source_id": "support-hours",
+    "path": "store-hours.md",
+    "tenant_id": "demo-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "public"
+  },
+  {
+    "source_id": "vendor-onboarding",
+    "path": "vendor.md",
+    "tenant_id": "vendor-tenant",
+    "version": "2026.1",
+    "effective_date": "2026-01-01",
+    "status": "active",
+    "classification": "internal"
+  }
+]
