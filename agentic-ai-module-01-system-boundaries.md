@@ -62,7 +62,8 @@ For the first version, cap the run at six model turns and a fixed time and token
 |---|---|---|---|---|
 | `search_policy` | Search question | Approved knowledge-base connection | Read only | Return article IDs and excerpts; do not silently broaden the search scope. |
 | `get_order` | Order reference | Authenticated customer ID from the session | Read only | Never accept a customer ID from the model; enforce ownership in the service. |
-| `prepare_refund_proposal` | Order reference and customer-stated reason | Authenticated customer ID and current policy version | Draft only | Return eligibility evidence and a proposal; cannot charge, refund, or change order state. |
+| `check_refund_eligibility` | Order reference | Authenticated customer ID and current policy version | Read only | Return only eligibility and policy version; do not create a proposal or request review. |
+| `prepare_refund_proposal` | Order reference and customer-stated reason | Authenticated customer ID and current policy version | Draft write | Create a proposal for an explicit refund request; cannot charge, refund, or change order state. |
 | `request_human_review` | Proposal ID and concise rationale | Trusted session and task ID | Creates a review request | Only an authorized operator can approve. |
 
 There is intentionally no model-callable `issue_refund` tool. After operator approval, backend code invokes the payment service using a short-lived approval token. This design keeps model judgment separate from financial authority.

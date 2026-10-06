@@ -14,6 +14,8 @@ import math
 import re
 import sqlite3
 import unicodedata
+import zipfile
+import xml.etree.ElementTree as ET
 from collections import Counter
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -38,6 +40,18 @@ _HTML_BLOCKS = {
     "h4", "h5", "h6", "li", "main", "ol", "p", "pre", "section", "table", "tbody", "td", "th",
     "thead", "tr", "ul",
 }
+_WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_WORD_XML_NS = {"w": _WORD_NS}
+_MAX_DOCX_FILE_BYTES = 20 * 1024 * 1024
+_MAX_DOCX_UNCOMPRESSED_BYTES = 32 * 1024 * 1024
+_MAX_DOCX_MEMBER_BYTES = 8 * 1024 * 1024
+_MAX_DOCX_MEMBERS = 1000
+_MAX_PDF_FILE_BYTES = 20 * 1024 * 1024
+_MAX_PDF_PAGES = 500
+_MAX_PDF_PAGE_STREAM_BYTES = 8 * 1024 * 1024
+_MAX_PDF_TOTAL_STREAM_BYTES = 64 * 1024 * 1024
+_MAX_PDF_EXTRACTED_CHARS = 8 * 1024 * 1024
+_MAX_OCR_PAGE_CHARS = 250_000
 
 
 @dataclass(frozen=True)
@@ -216,6 +230,252 @@ def html_to_markdown(text: str) -> str:
     parser.feed(text)
     parser.close()
     return normalize_text("".join(parser.parts))
+
+
+def _docx_paragraph_text(paragraph: ET.Element) -> str:
+    parts: list[str] = []
+    for element in paragraph.iter():
+        if element.tag == f"{{{_WORD_NS}}}t":
+            parts.append(element.text or "")
+        elif element.tag == f"{{{_WORD_NS}}}tab":
+            parts.append("\t")
+        elif element.tag == f"{{{_WORD_NS}}}cr":
+            parts.append("\n")
+        elif element.tag == f"{{{_WORD_NS}}}br":
+            break_type = element.get(f"{{{_WORD_NS}}}type", "textWrapping")
+            parts.append("\n\n[Page break]\n\n" if break_type == "page" else "\n")
+        elif element.tag == f"{{{_WORD_NS}}}lastRenderedPageBreak":
+            parts.append("\n\n[Page break]\n\n")
+
+    text = "".join(parts).strip()
+    if not text:
+        return ""
+    style = paragraph.find("w:pPr/w:pStyle", _WORD_XML_NS)
+    style_name = "" if style is None else style.get(f"{{{_WORD_NS}}}val", "")
+    heading = re.fullmatch(r"heading\s*([1-6])", style_name.replace("_", " "), re.IGNORECASE)
+    if heading:
+        return f"{'#' * int(heading.group(1))} {text}"
+    if style_name.lower() == "title":
+        return f"# {text}"
+    if paragraph.find("w:pPr/w:numPr", _WORD_XML_NS) is not None:
+        return f"- {text}"
+    return text
+
+
+def _docx_table_markdown(table: ET.Element) -> str:
+    rendered_rows: list[str] = []
+    header_index: int | None = None
+    header_columns = 0
+    for row_index, row in enumerate(table.findall("w:tr", _WORD_XML_NS)):
+        cells: list[str] = []
+        for cell in row.findall("w:tc", _WORD_XML_NS):
+            cell_paragraphs = cell.findall("w:p", _WORD_XML_NS)
+            recognized_text_nodes = {
+                id(element)
+                for paragraph in cell_paragraphs
+                for element in paragraph.iter()
+                if element.tag == f"{{{_WORD_NS}}}t"
+            }
+            all_text_nodes = {
+                id(element)
+                for element in cell.iter()
+                if element.tag == f"{{{_WORD_NS}}}t"
+            }
+            if recognized_text_nodes != all_text_nodes:
+                raise ValueError("DOCX table contains unsupported nested text structure.")
+            paragraphs = [
+                text for paragraph in cell_paragraphs
+                if (text := _docx_paragraph_text(paragraph))
+            ]
+            cells.append(" / ".join(paragraphs).replace("|", r"\|"))
+        if not cells:
+            continue
+        rendered_rows.append("| " + " | ".join(cells) + " |")
+        if row_index == 0:
+            header = row.find("w:trPr/w:tblHeader", _WORD_XML_NS)
+            if header is not None and header.get(f"{{{_WORD_NS}}}val", "true").lower() not in {"0", "false", "off"}:
+                header_index = 0
+                header_columns = len(cells)
+
+    if header_index == 0 and rendered_rows:
+        rendered_rows.insert(1, "| " + " | ".join("---" for _ in range(header_columns)) + " |")
+    return "\n".join(rendered_rows)
+
+
+def docx_to_markdown(path: str | Path) -> str:
+    """Extract bounded OOXML body text, headings, lists, and tables from a DOCX.
+
+    The standard-library parser does not render fields, extract images/OCR,
+    include headers/footers/comments, or guarantee visual reading order.
+    """
+    source_path = Path(path)
+    if source_path.stat().st_size > _MAX_DOCX_FILE_BYTES:
+        raise ValueError("DOCX source exceeds the configured file-size limit.")
+    try:
+        with zipfile.ZipFile(source_path) as archive:
+            members = archive.infolist()
+            if len(members) > _MAX_DOCX_MEMBERS:
+                raise ValueError("DOCX source exceeds the configured member-count limit.")
+            if sum(item.file_size for item in members) > _MAX_DOCX_UNCOMPRESSED_BYTES:
+                raise ValueError("DOCX source exceeds the configured expanded-size limit.")
+            if any(item.file_size > _MAX_DOCX_MEMBER_BYTES for item in members):
+                raise ValueError("DOCX source contains an oversized package member.")
+            document_members = [item for item in members if item.filename == "word/document.xml"]
+            if len(document_members) != 1:
+                raise ValueError("DOCX source must contain exactly one main document part.")
+            xml_bytes = archive.read(document_members[0])
+    except (OSError, zipfile.BadZipFile, KeyError, RuntimeError) as exc:
+        raise ValueError("DOCX source is not a readable OOXML document.") from exc
+
+    try:
+        if xml_bytes.startswith((b"\xff\xfe", b"\xfe\xff")):
+            xml_text = xml_bytes.decode("utf-16")
+        else:
+            xml_text = xml_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ValueError("DOCX document XML has an unsupported encoding.") from exc
+    upper_xml = xml_text.upper()
+    if "<!DOCTYPE" in upper_xml or "<!ENTITY" in upper_xml:
+        raise ValueError("DOCX source contains unsupported XML declarations.")
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise ValueError("DOCX document XML is malformed.") from exc
+    body = root.find(".//w:body", _WORD_XML_NS)
+    if body is None:
+        raise ValueError("DOCX document has no readable body.")
+
+    blocks: list[str] = []
+    for child in body:
+        if child.tag == f"{{{_WORD_NS}}}p":
+            text = _docx_paragraph_text(child)
+        elif child.tag == f"{{{_WORD_NS}}}tbl":
+            text = _docx_table_markdown(child)
+        else:
+            if child.tag == f"{{{_WORD_NS}}}altChunk" or any(
+                element.tag == f"{{{_WORD_NS}}}t" and (element.text or "").strip()
+                for element in child.iter()
+            ):
+                raise ValueError("DOCX source contains unsupported body structure; quarantine for a richer parser.")
+            continue
+        if text:
+            blocks.append(text)
+    extracted = normalize_text("\n\n".join(blocks))
+    if not extracted:
+        raise ValueError("DOCX source contains no extractable body text.")
+    return extracted
+
+
+class PDFIngestionError(ValueError):
+    """A source-quality or configured-bound rejection safe to report to callers."""
+
+
+@dataclass(frozen=True)
+class OCRPageResult:
+    text: str
+    confidence: float
+
+
+class PDFOCRAdapter(Protocol):
+    """Adapter contract for a renderer/OCR worker isolated from the agent process."""
+
+    def extract_page(self, pdf_path: Path, page_number: int) -> OCRPageResult: ...
+
+
+def pdf_to_markdown(
+    path: str | Path,
+    *,
+    ocr_adapter: PDFOCRAdapter | None = None,
+    min_ocr_confidence: float = 0.75,
+) -> str:
+    """Extract selectable PDF text and optionally OCR pages that have no text.
+
+    The adapter must render/OCR inside an isolated, resource-limited worker and
+    return calibrated confidence in [0, 1]. This function does not render PDFs,
+    reconstruct tables, or OCR image regions on pages that also have selectable
+    text. PDF parsing should run in an isolated worker for untrusted uploads.
+    """
+    source_path = Path(path)
+    if source_path.stat().st_size > _MAX_PDF_FILE_BYTES:
+        raise PDFIngestionError("PDF source exceeds the configured file-size limit.")
+    if (
+        isinstance(min_ocr_confidence, bool)
+        or not isinstance(min_ocr_confidence, (int, float))
+        or not 0 <= min_ocr_confidence <= 1
+        or not math.isfinite(min_ocr_confidence)
+    ):
+        raise ValueError("min_ocr_confidence must be a finite value between 0 and 1.")
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise RuntimeError("PDF ingestion requires the optional pypdf dependency; install requirements-pdf.txt.") from exc
+
+    try:
+        reader = PdfReader(str(source_path), strict=True)
+        if reader.is_encrypted:
+            raise PDFIngestionError("Encrypted PDFs require an approved decryption workflow.")
+        if len(reader.pages) > _MAX_PDF_PAGES:
+            raise PDFIngestionError("PDF source exceeds the configured page-count limit.")
+
+        page_blocks: list[str] = []
+        total_stream_bytes = 0
+        total_text_chars = 0
+        for page_number, page in enumerate(reader.pages, start=1):
+            contents = page.get_contents()
+            if contents is not None:
+                stream_bytes = len(contents.get_data())
+                if stream_bytes > _MAX_PDF_PAGE_STREAM_BYTES:
+                    raise PDFIngestionError(f"PDF page {page_number} exceeds the page-content limit.")
+                total_stream_bytes += stream_bytes
+                if total_stream_bytes > _MAX_PDF_TOTAL_STREAM_BYTES:
+                    raise PDFIngestionError("PDF source exceeds the total page-content limit.")
+
+            page_text = normalize_text(
+                page.extract_text(
+                    extraction_mode="layout",
+                    layout_mode_space_vertically=False,
+                ) or ""
+            )
+            page_heading = f"## Page {page_number}"
+            if not page_text:
+                if ocr_adapter is None:
+                    raise PDFIngestionError(
+                        f"PDF page {page_number} has no selectable text; route the source for OCR or blank-page review."
+                    )
+                ocr_result = ocr_adapter.extract_page(source_path, page_number)
+                if not isinstance(ocr_result, OCRPageResult):
+                    raise PDFIngestionError("OCR adapter returned an invalid page result.")
+                if (
+                    isinstance(ocr_result.confidence, bool)
+                    or not isinstance(ocr_result.confidence, (int, float))
+                    or not 0 <= ocr_result.confidence <= 1
+                    or not math.isfinite(ocr_result.confidence)
+                ):
+                    raise PDFIngestionError("OCR adapter returned an invalid confidence value.")
+                if ocr_result.confidence < min_ocr_confidence:
+                    raise PDFIngestionError(
+                        f"PDF page {page_number} OCR confidence is below the configured review threshold."
+                    )
+                if not isinstance(ocr_result.text, str) or len(ocr_result.text) > _MAX_OCR_PAGE_CHARS:
+                    raise PDFIngestionError("OCR adapter returned invalid or oversized page text.")
+                page_text = normalize_text(ocr_result.text)
+                if not page_text:
+                    raise PDFIngestionError(
+                        f"PDF page {page_number} OCR returned no readable text; route the source for review."
+                    )
+                page_heading += f" [OCR confidence {ocr_result.confidence:.3f}]"
+            total_text_chars += len(page_text)
+            if total_text_chars > _MAX_PDF_EXTRACTED_CHARS:
+                raise PDFIngestionError("PDF source exceeds the extracted-text limit.")
+            page_blocks.append(f"{page_heading}\n\n{page_text}")
+
+        if not page_blocks:
+            raise PDFIngestionError("PDF source contains no pages.")
+        return normalize_text("\n\n".join(page_blocks))
+    except PDFIngestionError:
+        raise
+    except Exception as exc:
+        raise PDFIngestionError("PDF source is malformed or could not be safely extracted.") from exc
 
 
 def normalize_text(text: str, *, redact_basic_pii: bool = False) -> str:
@@ -730,7 +990,12 @@ class SQLiteVectorStore:
         return [replace(hit, score=round(score, 6)) for score, hit in ordered[:top_k]]
 
 
-def load_manifest_documents(manifest_path: str | Path) -> list[Document]:
+def load_manifest_documents(
+    manifest_path: str | Path,
+    *,
+    pdf_ocr_adapter: PDFOCRAdapter | None = None,
+    min_ocr_confidence: float = 0.75,
+) -> list[Document]:
     manifest_path = Path(manifest_path).resolve()
     root = manifest_path.parent.resolve()
     records = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -739,9 +1004,19 @@ def load_manifest_documents(manifest_path: str | Path) -> list[Document]:
         source_path = (root / record["path"]).resolve()
         if root not in source_path.parents:
             raise ValueError("Knowledge source path escapes the manifest directory.")
-        content = source_path.read_text(encoding="utf-8")
         if source_path.suffix.lower() in {".htm", ".html"}:
+            content = source_path.read_text(encoding="utf-8")
             content = html_to_markdown(content)
+        elif source_path.suffix.lower() == ".docx":
+            content = docx_to_markdown(source_path)
+        elif source_path.suffix.lower() == ".pdf":
+            content = pdf_to_markdown(
+                source_path,
+                ocr_adapter=pdf_ocr_adapter,
+                min_ocr_confidence=min_ocr_confidence,
+            )
+        else:
+            content = source_path.read_text(encoding="utf-8")
         documents.append(
             Document(
                 source_id=record["source_id"],

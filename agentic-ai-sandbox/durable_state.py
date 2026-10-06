@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from support_agent import Decision, RunContext, RunResult
 
@@ -90,16 +92,50 @@ class RunSnapshot:
     terminal_result: RunResult | None = None
 
 
-class SQLiteRunJournal:
-    """Persist model decisions and tool results so a run can resume after a crash.
+class RunLeaseBusy(RuntimeError):
+    """Another worker currently owns an unexpired lease for this run."""
 
-    This teaching implementation assumes one active worker per run. Production
-    systems also need a lease or compare-and-swap claim so concurrent workers do
-    not both advance the same session.
+
+class RunLeaseLost(RuntimeError):
+    """A worker no longer owns a valid lease for a run."""
+
+
+class RunStateConflict(RuntimeError):
+    """A worker attempted a write from an obsolete run-state version."""
+
+
+class RunNotClaimable(RuntimeError):
+    """A run is terminal or otherwise cannot be claimed for execution."""
+
+
+@dataclass(frozen=True)
+class RunLease:
+    run_id: str
+    worker_id: str
+    fencing_token: int
+    state_version: int
+    expires_at: float
+
+
+class SQLiteRunJournal:
+    """Persist run events and coordinate workers with leases and fencing tokens.
+
+    SQLite serializes claim/write transactions. Every journal mutation requires
+    the current lease token and state version; downstream side effects still
+    need idempotency or their own fencing support.
     """
 
-    def __init__(self, database_path: str | Path):
+    def __init__(
+        self,
+        database_path: str | Path,
+        lease_seconds: float = 60.0,
+        clock: Callable[[], float] = time.time,
+    ):
+        if not math.isfinite(lease_seconds) or lease_seconds <= 0:
+            raise ValueError("Lease duration must be a finite positive number.")
         self.database_path = str(database_path)
+        self.lease_seconds = lease_seconds
+        self._clock = clock
         Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
         with _connect(self.database_path) as connection:
             connection.execute("PRAGMA journal_mode = WAL")
@@ -110,6 +146,10 @@ class SQLiteRunJournal:
                     request TEXT NOT NULL,
                     status TEXT NOT NULL,
                     turns INTEGER NOT NULL DEFAULT 0,
+                    state_version INTEGER NOT NULL DEFAULT 0,
+                    fencing_token INTEGER NOT NULL DEFAULT 0,
+                    lease_owner TEXT,
+                    lease_until REAL,
                     final_result_json TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -125,6 +165,19 @@ class SQLiteRunJournal:
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )"""
             )
+            # Keep existing teaching databases readable when the schema grows.
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(agent_runs)").fetchall()
+            }
+            for name, definition in (
+                ("state_version", "INTEGER NOT NULL DEFAULT 0"),
+                ("fencing_token", "INTEGER NOT NULL DEFAULT 0"),
+                ("lease_owner", "TEXT"),
+                ("lease_until", "REAL"),
+            ):
+                if name not in columns:
+                    connection.execute(f"ALTER TABLE agent_runs ADD COLUMN {name} {definition}")
 
     def start_run(self, run_id: str, request: str, context: RunContext) -> None:
         with _connect(self.database_path) as connection:
@@ -142,7 +195,97 @@ class SQLiteRunJournal:
                 raise ValueError("Run ID is already bound to a different subject or request.")
             connection.commit()
 
-    def record_decision(self, run_id: str, turn_number: int, decision: Decision) -> None:
+    def claim_run(self, run_id: str, worker_id: str) -> RunLease:
+        if not isinstance(worker_id, str) or not worker_id.strip() or len(worker_id) > 200:
+            raise ValueError("Worker ID must be a non-empty string of at most 200 characters.")
+        now = self._clock()
+        expires_at = now + self.lease_seconds
+        with _connect(self.database_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT status, state_version, fencing_token, lease_owner, lease_until "
+                "FROM agent_runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                raise KeyError(f"Run does not exist: {run_id}")
+            if row["status"] != "running":
+                connection.rollback()
+                raise RunNotClaimable(f"Run cannot be claimed from status {row['status']}.")
+            if row["lease_owner"] is not None and row["lease_until"] is not None and row["lease_until"] > now:
+                connection.rollback()
+                raise RunLeaseBusy(f"Run is leased by worker {row['lease_owner']}.")
+            token = row["fencing_token"] + 1
+            version = row["state_version"]
+            changed = connection.execute(
+                "UPDATE agent_runs SET lease_owner = ?, lease_until = ?, fencing_token = ?, "
+                "updated_at = CURRENT_TIMESTAMP WHERE run_id = ? AND status = 'running' "
+                "AND state_version = ? AND fencing_token = ?",
+                (worker_id, expires_at, token, run_id, version, row["fencing_token"]),
+            ).rowcount
+            if changed != 1:
+                connection.rollback()
+                raise RunStateConflict("Run changed while the worker was claiming it.")
+            connection.commit()
+        return RunLease(run_id, worker_id, token, version, expires_at)
+
+    def renew_lease(self, lease: RunLease) -> RunLease:
+        now = self._clock()
+        expires_at = now + self.lease_seconds
+        with _connect(self.database_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._assert_lease(connection, lease, now)
+            changed = connection.execute(
+                "UPDATE agent_runs SET lease_until = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE run_id = ? AND status = 'running' AND lease_owner = ? "
+                "AND fencing_token = ? AND state_version = ? AND lease_until > ?",
+                (
+                    expires_at,
+                    lease.run_id,
+                    lease.worker_id,
+                    lease.fencing_token,
+                    lease.state_version,
+                    now,
+                ),
+            ).rowcount
+            if changed != 1:
+                connection.rollback()
+                raise RunLeaseLost("Worker lease expired before it could be renewed.")
+            connection.commit()
+        return RunLease(
+            lease.run_id,
+            lease.worker_id,
+            lease.fencing_token,
+            lease.state_version,
+            expires_at,
+        )
+
+    @staticmethod
+    def _assert_lease(
+        connection: sqlite3.Connection, lease: RunLease, now: float
+    ) -> sqlite3.Row:
+        row = connection.execute(
+            "SELECT status, state_version, fencing_token, lease_owner, lease_until, turns "
+            "FROM agent_runs WHERE run_id = ?",
+            (lease.run_id,),
+        ).fetchone()
+        if (
+            row is None
+            or row["status"] != "running"
+            or row["lease_owner"] != lease.worker_id
+            or row["fencing_token"] != lease.fencing_token
+            or row["lease_until"] is None
+            or row["lease_until"] <= now
+        ):
+            raise RunLeaseLost("Worker no longer holds a live lease for this run.")
+        if row["state_version"] != lease.state_version:
+            raise RunStateConflict("Worker state version is stale; reload the run before writing.")
+        return row
+
+    def record_decision(
+        self, lease: RunLease, turn_number: int, decision: Decision
+    ) -> RunLease:
         payload = {
             "kind": decision.kind,
             "text": decision.text,
@@ -152,41 +295,99 @@ class SQLiteRunJournal:
             "tool_use_id": decision.tool_use_id,
             "model_metrics": decision.model_metrics,
         }
+        now = self._clock()
         with _connect(self.database_path) as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT turns, status FROM agent_runs WHERE run_id = ?", (run_id,)
-            ).fetchone()
-            if row is None or row["status"] != "running" or row["turns"] != turn_number - 1:
+            row = self._assert_lease(connection, lease, now)
+            if row["turns"] != turn_number - 1:
                 connection.rollback()
                 raise RuntimeError("Run changed before this decision could be recorded.")
+            previous = connection.execute(
+                "SELECT event_type, payload_json FROM agent_run_events "
+                "WHERE run_id = ? ORDER BY event_id DESC LIMIT 1",
+                (lease.run_id,),
+            ).fetchone()
+            if previous is not None and previous["event_type"] == "decision":
+                connection.rollback()
+                raise RuntimeError("The previous decision has not been resolved in the journal.")
             connection.execute(
                 "INSERT INTO agent_run_events(run_id, event_type, turn_number, payload_json) VALUES (?, 'decision', ?, ?)",
-                (run_id, turn_number, json.dumps(payload, ensure_ascii=False)),
+                (lease.run_id, turn_number, json.dumps(payload, ensure_ascii=False)),
             )
-            connection.execute(
-                "UPDATE agent_runs SET turns = ?, updated_at = CURRENT_TIMESTAMP WHERE run_id = ?",
-                (turn_number, run_id),
-            )
+            changed = connection.execute(
+                "UPDATE agent_runs SET turns = ?, state_version = state_version + 1, "
+                "updated_at = CURRENT_TIMESTAMP WHERE run_id = ? AND status = 'running' "
+                "AND lease_owner = ? AND fencing_token = ? AND state_version = ? AND lease_until > ?",
+                (
+                    turn_number,
+                    lease.run_id,
+                    lease.worker_id,
+                    lease.fencing_token,
+                    lease.state_version,
+                    now,
+                ),
+            ).rowcount
+            if changed != 1:
+                connection.rollback()
+                raise RunLeaseLost("Lease or run state changed before the decision was committed.")
             connection.commit()
+        return RunLease(
+            lease.run_id,
+            lease.worker_id,
+            lease.fencing_token,
+            lease.state_version + 1,
+            lease.expires_at,
+        )
 
     def record_tool_result(
-        self, run_id: str, turn_number: int, observation: dict[str, Any]
-    ) -> None:
+        self, lease: RunLease, turn_number: int, observation: dict[str, Any]
+    ) -> RunLease:
         payload = {key: observation[key] for key in ("tool", "ok", "result")}
+        now = self._clock()
         with _connect(self.database_path) as connection:
             connection.execute("BEGIN IMMEDIATE")
+            row = self._assert_lease(connection, lease, now)
+            previous = connection.execute(
+                "SELECT event_type, turn_number, payload_json FROM agent_run_events "
+                "WHERE run_id = ? ORDER BY event_id DESC LIMIT 1",
+                (lease.run_id,),
+            ).fetchone()
+            if previous is None or previous["event_type"] != "decision" or previous["turn_number"] != turn_number:
+                connection.rollback()
+                raise RuntimeError("Tool result does not match the current journal decision.")
+            decision_payload = json.loads(previous["payload_json"])
+            if decision_payload.get("kind") != "tool" or decision_payload.get("tool_name") != payload["tool"]:
+                connection.rollback()
+                raise RuntimeError("Tool result does not match the recorded tool request.")
             connection.execute(
                 "INSERT INTO agent_run_events(run_id, event_type, turn_number, payload_json) VALUES (?, 'tool_result', ?, ?)",
-                (run_id, turn_number, json.dumps(payload, ensure_ascii=False)),
+                (lease.run_id, turn_number, json.dumps(payload, ensure_ascii=False)),
             )
-            connection.execute(
-                "UPDATE agent_runs SET updated_at = CURRENT_TIMESTAMP WHERE run_id = ? AND status = 'running'",
-                (run_id,),
-            )
+            changed = connection.execute(
+                "UPDATE agent_runs SET state_version = state_version + 1, updated_at = CURRENT_TIMESTAMP "
+                "WHERE run_id = ? AND status = 'running' AND lease_owner = ? AND fencing_token = ? "
+                "AND state_version = ? AND lease_until > ?",
+                (
+                    lease.run_id,
+                    lease.worker_id,
+                    lease.fencing_token,
+                    lease.state_version,
+                    now,
+                ),
+            ).rowcount
+            if changed != 1:
+                connection.rollback()
+                raise RunLeaseLost("Lease or run state changed before the tool result was committed.")
             connection.commit()
+        return RunLease(
+            lease.run_id,
+            lease.worker_id,
+            lease.fencing_token,
+            lease.state_version + 1,
+            lease.expires_at,
+        )
 
-    def finish_run(self, run_id: str, result: RunResult) -> None:
+    def finish_run(self, lease: RunLease, result: RunResult) -> None:
         payload = {
             "status": result.status,
             "answer": result.answer,
@@ -194,16 +395,36 @@ class SQLiteRunJournal:
             "turns": result.turns,
             "model_metrics": result.model_metrics,
         }
+        now = self._clock()
         with _connect(self.database_path) as connection:
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                "UPDATE agent_runs SET status = ?, final_result_json = ?, updated_at = CURRENT_TIMESTAMP WHERE run_id = ? AND status = 'running'",
-                (result.status, json.dumps(payload, ensure_ascii=False), run_id),
-            )
+            row = self._assert_lease(connection, lease, now)
+            if row["turns"] != result.turns:
+                connection.rollback()
+                raise RunStateConflict("Final result turn count does not match the journal.")
+            changed = connection.execute(
+                "UPDATE agent_runs SET status = ?, final_result_json = ?, state_version = state_version + 1, "
+                "lease_owner = NULL, lease_until = NULL, updated_at = CURRENT_TIMESTAMP "
+                "WHERE run_id = ? AND status = 'running' AND lease_owner = ? AND fencing_token = ? "
+                "AND state_version = ? AND lease_until > ?",
+                (
+                    result.status,
+                    json.dumps(payload, ensure_ascii=False),
+                    lease.run_id,
+                    lease.worker_id,
+                    lease.fencing_token,
+                    lease.state_version,
+                    now,
+                ),
+            ).rowcount
+            if changed != 1:
+                connection.rollback()
+                raise RunLeaseLost("Lease or run state changed before the final result was committed.")
             connection.commit()
 
     def snapshot(self, run_id: str) -> RunSnapshot:
         with _connect(self.database_path) as connection:
+            connection.execute("BEGIN")
             run = connection.execute(
                 "SELECT status, turns, final_result_json FROM agent_runs WHERE run_id = ?", (run_id,)
             ).fetchone()
@@ -213,6 +434,7 @@ class SQLiteRunJournal:
                 "SELECT event_type, turn_number, payload_json FROM agent_run_events WHERE run_id = ? ORDER BY event_id",
                 (run_id,),
             ).fetchall()
+            connection.commit()
 
         if run["final_result_json"]:
             final = json.loads(run["final_result_json"])

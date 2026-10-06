@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 from pathlib import Path
 
 from approval_outbox import ApprovalError, MockPaymentProvider, RefundApprovalOutbox, proposal_digest
@@ -42,6 +43,15 @@ def main() -> int:
         provider_db = Path(temp_dir) / "payment-provider.sqlite3"
         store = SQLiteIdempotencyStore(app_db)
         approvals = RefundApprovalOutbox(app_db, store, {"operator-1"})
+        separate_store = SQLiteIdempotencyStore(Path(temp_dir) / "separate.sqlite3")
+        try:
+            RefundApprovalOutbox(app_db, separate_store, {"operator-1"})
+        except ValueError as exc:
+            assert "share one database" in str(exc).lower()
+        else:
+            raise AssertionError("approval must reject split persistence that cannot be atomic")
+        print("PASS  approval refuses split databases that cannot share one transaction")
+
         proposal = prepare(store, "approval-main")
         digest = proposal_digest(proposal)
 
@@ -109,6 +119,76 @@ def main() -> int:
         )
         assert approvals.outbox_count(expired["proposal_id"]) == 0
         print("PASS  expired proposal cannot be approved")
+
+        stale_policy = prepare(store, "approval-stale-policy")
+        stale_policy_digest = proposal_digest(stale_policy)
+        approvals.update_authoritative_state(policy_version="returns-v2")
+        must_reject(
+            lambda: approvals.approve(
+                stale_policy["proposal_id"], stale_policy_digest, "operator-1", now_epoch=2000
+            ),
+            "stale",
+        )
+        assert approvals.outbox_count(stale_policy["proposal_id"]) == 0
+        approvals.update_authoritative_state(policy_version="returns-v1")
+
+        stale_amount = prepare(store, "approval-stale-amount")
+        stale_amount_digest = proposal_digest(stale_amount)
+        approvals.update_authoritative_state(
+            order_updates={"ORD-100": {"amount_cents": 1999}}
+        )
+        must_reject(
+            lambda: approvals.approve(
+                stale_amount["proposal_id"], stale_amount_digest, "operator-1", now_epoch=2000
+            ),
+            "stale",
+        )
+        assert approvals.outbox_count(stale_amount["proposal_id"]) == 0
+        approvals.update_authoritative_state(
+            order_updates={"ORD-100": {"amount_cents": 2000}}
+        )
+        print("PASS  approval transaction rejects stale policy and changed order terms")
+
+        race_proposal = prepare(store, "approval-state-change-race")
+        race_digest = proposal_digest(race_proposal)
+        start_race = threading.Barrier(2)
+        race_results: list[str] = []
+
+        def change_policy() -> None:
+            start_race.wait()
+            approvals.update_authoritative_state(policy_version="returns-v2")
+            race_results.append("policy-changed")
+
+        def approve_during_change() -> None:
+            start_race.wait()
+            try:
+                approvals.approve(
+                    race_proposal["proposal_id"], race_digest, "operator-1", now_epoch=2000
+                )
+            except ApprovalError as exc:
+                if "stale" in str(exc).lower():
+                    race_results.append("approval-rejected")
+                else:
+                    race_results.append(f"unexpected-rejection:{exc}")
+            else:
+                race_results.append("approval-committed")
+
+        threads = [threading.Thread(target=change_policy), threading.Thread(target=approve_during_change)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+        assert all(not thread.is_alive() for thread in threads)
+        assert "policy-changed" in race_results
+        assert len(race_results) == 2
+        assert set(race_results) & {"approval-rejected", "approval-committed"}
+        assert not any(result.startswith("unexpected-rejection:") for result in race_results)
+        if "approval-committed" in race_results:
+            assert approvals.outbox_count(race_proposal["proposal_id"]) == 1
+        else:
+            assert approvals.outbox_count(race_proposal["proposal_id"]) == 0
+        approvals.update_authoritative_state(policy_version="returns-v1")
+        print("PASS  policy update and approval serialize to one valid SQLite transaction order")
 
         rejected = prepare(store, "approval-rejected", reason="customer changed their mind")
         rejected_digest = proposal_digest(rejected)

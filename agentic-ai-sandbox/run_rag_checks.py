@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import zipfile
 from pathlib import Path
 
 from rag_pipeline import (
@@ -11,6 +12,7 @@ from rag_pipeline import (
     HashingEmbedder,
     SQLiteVectorStore,
     chunk_sections,
+    docx_to_markdown,
     load_manifest_documents,
     normalize_text,
     parse_markdown_sections,
@@ -98,6 +100,105 @@ def main() -> int:
         except ValueError as error:
             assert "table row exceeds" in str(error)
         print("PASS  static HTML ingestion keeps heading/table structure and removes known boilerplate")
+
+        docx_path = Path(temporary) / "returns.docx"
+        docx_xml = '''<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+          <w:body>
+            <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Returns policy</w:t></w:r></w:p>
+            <w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>Eligibility</w:t></w:r></w:p>
+            <w:p><w:r><w:t>Contact ada@example.test for help with an unopened item.</w:t></w:r></w:p>
+            <w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>Report damage within seven days.</w:t></w:r></w:p>
+            <w:tbl>
+              <w:tr><w:trPr><w:tblHeader/></w:trPr>
+                <w:tc><w:p><w:r><w:t>Item</w:t></w:r></w:p></w:tc>
+                <w:tc><w:p><w:r><w:t>Window</w:t></w:r></w:p></w:tc>
+              </w:tr>
+              <w:tr>
+                <w:tc><w:p><w:r><w:t>Unopened</w:t></w:r></w:p></w:tc>
+                <w:tc><w:p><w:r><w:t>30 days</w:t></w:r></w:p></w:tc>
+              </w:tr>
+            </w:tbl>
+            <w:p><w:r><w:br w:type="page"/><w:t>Keep the original receipt.</w:t></w:r></w:p>
+            <w:sectPr/>
+          </w:body>
+        </w:document>'''
+        with zipfile.ZipFile(docx_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("word/document.xml", docx_xml)
+        docx_manifest = Path(temporary) / "docx-manifest.json"
+        docx_manifest.write_text(
+            json.dumps([{
+                "source_id": "docx-policy",
+                "path": "returns.docx",
+                "tenant_id": "tenant-a",
+                "version": "v1",
+                "effective_date": "2026-01-01",
+                "status": "active",
+                "classification": "internal",
+                "redact_basic_pii": True,
+            }]),
+            encoding="utf-8",
+        )
+        docx_document = load_manifest_documents(docx_manifest)[0]
+        assert "# Returns policy" in docx_document.text
+        assert "## Eligibility" in docx_document.text
+        assert "- Report damage within seven days." in docx_document.text
+        assert "| Item | Window |" in docx_document.text
+        assert "| --- | --- |" in docx_document.text
+        assert "[Page break]" in docx_document.text
+        docx_sections = parse_markdown_sections(docx_document.text)
+        assert docx_sections[0].path == "Returns policy > Eligibility"
+        docx_table_chunk = next(
+            chunk for _, chunk in chunk_sections(docx_sections, max_words=20, overlap_words=2)
+            if "| Unopened" in chunk
+        )
+        assert "| Item | Window |" in docx_table_chunk and "| --- | --- |" in docx_table_chunk
+        prepared_docx = prepare_document(docx_document, max_words=60, overlap_words=5)
+        assert any("[REDACTED_EMAIL]" in chunk.text for chunk in prepared_docx)
+        assert all("ada@example.test" not in chunk.text for chunk in prepared_docx)
+        docx_store = SQLiteVectorStore(Path(temporary) / "docx-rag.sqlite", HashingEmbedder())
+        assert docx_store.ingest(docx_document) > 0
+        docx_hits = docx_store.search(
+            tenant_id="tenant-a",
+            query="unopened return window 30 days",
+            allowed_classifications=["internal"],
+            top_k=2,
+        )
+        assert docx_hits and any("Unopened" in hit.text for hit in docx_hits)
+        assert all("ada@example.test" not in hit.text for hit in docx_hits)
+        docx_store.close()
+
+        unsafe_docx = Path(temporary) / "unsafe.docx"
+        with zipfile.ZipFile(unsafe_docx, "w") as archive:
+            archive.writestr(
+                "word/document.xml",
+                '<!DOCTYPE w:document [<!ENTITY x "expanded">]><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body/></w:document>',
+            )
+        try:
+            docx_to_markdown(unsafe_docx)
+            raise AssertionError("DOCX parser must reject DTD/entity declarations")
+        except ValueError as error:
+            assert "xml declarations" in str(error).lower()
+        unsupported_docx = Path(temporary) / "unsupported.docx"
+        with zipfile.ZipFile(unsupported_docx, "w") as archive:
+            archive.writestr(
+                "word/document.xml",
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:sdt><w:sdtContent><w:p><w:r><w:t>content control text</w:t></w:r></w:p></w:sdtContent></w:sdt></w:body></w:document>',
+            )
+        try:
+            docx_to_markdown(unsupported_docx)
+            raise AssertionError("DOCX parser must reject body text it cannot preserve")
+        except ValueError as error:
+            assert "unsupported body structure" in str(error).lower()
+        oversized_docx = Path(temporary) / "oversized.docx"
+        with zipfile.ZipFile(oversized_docx, "w") as archive:
+            archive.writestr("word/document.xml", b"x" * (8 * 1024 * 1024 + 1))
+        try:
+            docx_to_markdown(oversized_docx)
+            raise AssertionError("DOCX parser must enforce expanded package-member limits")
+        except ValueError as error:
+            assert "oversized package member" in str(error).lower()
+        print("PASS  DOCX extraction preserves supported structure, redacts PII, and rejects unsafe, partial, or oversized input")
 
         db_path = Path(temporary) / "rag-checks.sqlite"
         embedder = HashingEmbedder()

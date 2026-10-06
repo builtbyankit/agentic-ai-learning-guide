@@ -24,6 +24,8 @@ def response(
     output_tokens=8,
     cache_read_input_tokens=0,
     cache_creation_input_tokens=0,
+    cache_creation_5m_input_tokens=0,
+    cache_creation_1h_input_tokens=0,
 ):
     return SimpleNamespace(
         stop_reason=stop_reason,
@@ -33,6 +35,10 @@ def response(
             output_tokens=output_tokens,
             cache_read_input_tokens=cache_read_input_tokens,
             cache_creation_input_tokens=cache_creation_input_tokens,
+            cache_creation=SimpleNamespace(
+                ephemeral_5m_input_tokens=cache_creation_5m_input_tokens,
+                ephemeral_1h_input_tokens=cache_creation_1h_input_tokens,
+            ),
         ),
     )
 
@@ -83,6 +89,8 @@ def main() -> int:
             output_tokens=7,
             cache_read_input_tokens=12,
             cache_creation_input_tokens=30,
+            cache_creation_5m_input_tokens=10,
+            cache_creation_1h_input_tokens=20,
         )
     ])
     cache_planner = AnthropicPlanner(
@@ -97,6 +105,8 @@ def main() -> int:
     assert cache_call["tools"] == ANTHROPIC_TOOLS
     assert cache_decision.model_metrics["cache_read_input_tokens"] == 12
     assert cache_decision.model_metrics["cache_creation_input_tokens"] == 30
+    assert cache_decision.model_metrics["cache_creation_5m_input_tokens"] == 10
+    assert cache_decision.model_metrics["cache_creation_1h_input_tokens"] == 20
     print("PASS  optional Anthropic cache breakpoint and cache usage metrics")
 
     multiple_tool_response = response(

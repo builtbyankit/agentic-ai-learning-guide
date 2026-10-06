@@ -72,7 +72,7 @@ stateDiagram-v2
     cancelled --> [*]
 ```
 
-The approval flow may resume the same agent run for a response, but payment execution is a separate backend operation. The model must not receive or invoke the payment credential. If the provider times out after receiving a request, mark the action `outcome_unknown`, query/reconcile by the original idempotency key, and do not issue a new key to “try again.” The current SQLite demo does not implement a full run lease, same-run approval resume, cancellation, or provider reconciliation.
+The approval flow may resume the same agent run for a response, but payment execution is a separate backend operation. The model must not receive or invoke the payment credential. If the provider times out after receiving a request, mark the action `outcome_unknown`, query/reconcile by the original idempotency key, and do not issue a new key to “try again.” The SQLite lab now demonstrates local run leases, fencing, compare-and-swap journal writes, and heartbeat renewal during a slow simulated tool call. It does not establish provider/network failure behavior, same-run approval resume, cancellation, a distributed database, or provider reconciliation.
 
 ### Storage and worker rules
 
@@ -87,7 +87,7 @@ The approval flow may resume the same agent run for a response, but payment exec
 
 The prototype has six turns, four tool calls, an 8,000-character request cap, and bounded tool strings. Production limits should additionally include an end-to-end deadline, input/output token ceilings, per-user and per-tenant rate limits, concurrency quotas, tool-specific timeouts, and an explicit cancellation path. Record the limit that ended each run so operators can distinguish an expected handoff from a service failure.
 
-Use a fixed workflow for known, structured requests. Route to the bounded model planner only when the request is mixed or unclear enough that dynamic sequencing is useful. The fixed workflow currently passes 10/10 small synthetic cases with twelve tool calls and zero model calls; that dataset gives no measured reason to add a model call for the current narrow task set. This is a deliberate design gate: run both architectures on representative traffic before expanding model autonomy.
+Use a fixed workflow for known, structured requests. Route to the bounded model planner only when the request is mixed or unclear enough that dynamic sequencing is useful. The fixed workflow passes the ten-case v4 suite, 12/15 cases in v5, and 13/16 in v6 with zero model calls; v6 adds a session-revocation state transition. The remaining misses include multiple orders, multiple policy topics, and out-of-scope payment details. This is a deliberate design gate: run both architectures on representative traffic before expanding model autonomy.
 
 If the model provider is unavailable, return a clear handoff or use a deterministic workflow for intents whose correctness has been established. If the tool gateway or authorization service is unavailable, fail closed. If approval is unavailable, keep the request pending and tell the user; never infer approval from a timeout.
 
@@ -146,9 +146,9 @@ On-call ownership should be explicit for the model adapter, tool gateway, order/
 |---|---|---|
 | Bounded tool surface, ownership check, limited outputs | Runtime code and scripted/security checks | Demonstrated on synthetic data |
 | Anthropic/Python adapter protocol | Fake-client tool round-trip and durable transcript recovery | Adapter mechanics demonstrated; live behavior unverified |
-| Evaluation against a fixed baseline | 10-case v4 fixed workflow passes 10/10; no live-model comparison | Incomplete for model value/quality |
+| Evaluation against a fixed baseline | v4 fixed workflow passes 10/10; v5 passes 12/15; v6 passes 13/16 including revocation; no live-model comparison | Incomplete for model value/quality |
 | Policy retrieval quality | 11-query synthetic retrieval eval scores 100% exact coverage | Catalog is tiny and authored; representative corpus quality is unverified |
-| Restart and retry behavior | SQLite run journal, approval/outbox, and mock-provider crash checks | Demonstrated for tested single-worker simulations |
+| Restart, retry, and local worker coordination | SQLite run journal/outbox; restart, two-thread claim race, stale fencing/state-version rejection, slow-tool heartbeat and heartbeat-loss recovery checks | Demonstrated on one local SQLite database; provider/network and multi-host behavior unverified |
 | Human approval and action binding | Exact digest, allow-list, expiry, outbox checks | Local simulation; real operator authentication missing |
 | Production identity, scale, deployment, and operations | Architecture and runbooks in this module | Design only; not implemented or load-tested |
 | Privacy controls and cost/latency envelope | Threat register and metrics plan | Production retention, redaction, live rates, and SLO targets missing |

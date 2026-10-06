@@ -42,22 +42,27 @@ Open [the sandbox README](agentic-ai-sandbox/README.md) and run:
 python3 run_approval_checks.py
 ```
 
-`RefundApprovalOutbox` writes the operator decision and outbox record in one SQLite transaction. A unique proposal and idempotency key prevent duplicate records. A worker atomically claims pending work with a lease; a later worker may reclaim it after lease expiry. The provider mock stores its own idempotency ledger. If a worker crashes after provider success but before acknowledging the outbox, the restarted worker retries the same key and receives the same simulated refund result.
+`RefundApprovalOutbox` requires the proposal store and approval/outbox state to share one SQLite database. The approval transaction takes a write lock, checks the proposal's policy version and current owner/eligibility/amount/currency in `refund_authority_state`, then writes the decision and outbox row before committing. Current-state updates use the same transaction boundary, so an approval racing a policy/order update serializes: either approval commits against the old state first, or the update commits first and the stale approval is rejected. Repeating a committed approval returns its existing result. A unique proposal and idempotency key prevent duplicate records. A worker atomically claims pending work with a lease; a later worker may reclaim it after lease expiry. The provider mock stores its own idempotency ledger. If a worker crashes after provider success but before acknowledging the outbox, the restarted worker retries the same key and receives the same simulated refund result.
 
 The verified local scenarios are:
 
-1. The model has no approval tool; unauthorized and altered approvals do not enqueue work.
-2. Approval binds to the exact proposal, and repeating the same approval creates one outbox action.
-3. Only approved actions are claimable, and an unexpired lease blocks a second claim.
-4. A retry after simulated provider success reuses the key and records one refund; an expired worker claim cannot complete the row.
-5. An expired proposal cannot be approved.
-6. A rejected proposal cannot later be approved or sent to the provider.
+1. The approval service refuses split databases that cannot provide the required transaction boundary.
+2. The model has no approval tool; unauthorized and altered approvals do not enqueue work.
+3. Approval binds to the exact proposal, and repeating the same approval creates one outbox action.
+4. Only approved actions are claimable, and an unexpired lease blocks a second claim.
+5. A retry after simulated provider success reuses the key and records one refund; an expired worker claim cannot complete the row.
+6. An expired proposal cannot be approved.
+7. A policy change or material order change before approval rejects the proposal and creates no outbox row.
+8. A concurrent state update and approval serialize to one valid SQLite transaction order.
+9. A rejected proposal cannot later be approved or sent to the provider.
 
 ## Design review: what remains outside this demonstration
 
 - The operator allow-list is local application configuration, not authentication. A real approval endpoint must derive operator identity from a trusted identity system and enforce role and transaction limits on the server.
 - The SQLite digest is a consistency check against a changed proposal. It is not a digital signature, does not prove what an operator saw, and cannot defend against an attacker who can rewrite the database and approval records.
-- SQLite makes the approval and outbox insert atomic in this single-process example. A distributed deployment needs database ownership, worker claiming/leases, migrations, monitoring, and a dead-letter and reconciliation process.
+- `refund_authority_state` is a synthetic current-state table colocated with the proposal, approval, and outbox rows so the transaction boundary can be exercised. A real deployment must use the authoritative policy/order datastore; if facts live in separate services, use a conditional revision/reservation API or a carefully designed saga because one SQL transaction cannot span independent systems.
+- SQLite makes current-state validation, approval, and outbox insertion atomic in this local example. This does not prove multi-host database behavior. A distributed deployment still needs database ownership, worker claiming/leases, migrations, monitoring, and a dead-letter and reconciliation process.
+- This demo treats a committed approval digest as valid authorization until proposal expiry, even if policy changes afterward. If the business rule requires policy to remain current at execution time, revalidate in the outbox worker and define how policy updates cancel or reconcile already-approved pending actions.
 - The provider mock guarantees idempotency because it stores the key durably. A real payment provider must guarantee idempotency for the required retention window, or the system needs provider-side lookup/reconciliation before retrying an ambiguous result.
 - This example does not collect a real user confirmation or execute a real refund. It demonstrates the state transition and recovery contract only.
 

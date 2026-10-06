@@ -10,7 +10,7 @@ From this folder, run:
 python3 run_evals.py
 ```
 
-The latest run (2026-10-06) passed **9/9 scenarios**. They cover policy grounding, authorized and unauthorized order lookup, refund proposal review, idempotency, malformed-argument recovery, data minimization, and the run budget. A passing result means the harness and tool boundary satisfy these scripted scenarios.
+The latest run (2026-10-07) passed **9/9 scenarios**. They cover policy grounding, authorized and unauthorized order lookup, refund proposal review, idempotency, malformed-argument recovery, data minimization, and the run budget. A passing result means the harness and tool boundary satisfy these scripted scenarios.
 
 Check the provider message/tool-result round trip without making an API request:
 
@@ -26,7 +26,7 @@ Check durable restart and idempotency behavior without making an API request:
 python3 run_durability_checks.py
 ```
 
-The five recovery checks use temporary SQLite files and clean them up after the run.
+The thirteen recovery/coordination checks use temporary SQLite files and clean them up after the run. They include an earlier-schema migration, a two-thread claim race, lease takeover, stale-worker fencing, state-version compare-and-swap, heartbeat renewal during a slow tool call, and recovery after heartbeat failure.
 
 Check the human approval and retry-safe outbox path without making an API request:
 
@@ -34,7 +34,7 @@ Check the human approval and retry-safe outbox path without making an API reques
 python3 run_approval_checks.py
 ```
 
-The six checks cover separation of model authority from operator approval, exact-proposal binding, duplicate approval, leased delivery, expiry, rejection, and retry after simulated provider success. The payment provider is a local SQLite-backed mock; no real refund is issued.
+The nine checks cover the shared-database invariant, separation of model authority from operator approval, exact-proposal binding, duplicate approval, leased delivery, expiry, rejection, retry after simulated provider success, and rejection of stale policy/order facts. The current synthetic authority state, proposal/review records, approval, and outbox share one SQLite database; a race check verifies policy updates serialize against approval. The payment provider is a local SQLite-backed mock; no real refund is issued.
 
 Check adversarial input handling and deterministic security boundaries without making an API request:
 
@@ -42,7 +42,7 @@ Check adversarial input handling and deterministic security boundaries without m
 python3 run_security_checks.py
 ```
 
-The seven check groups cover capability separation, request and argument bounds, tenant denial behavior, prompt-injection resistance through runtime controls and data minimization, proposal task/expiry checks, and fail-closed tool dispatch.
+The eleven check groups cover capability separation, request and argument bounds, tenant denial behavior, data minimization, subject revocation, identity-provider failure, proposal task/expiry checks, stale policy/order rejection, fail-closed tool dispatch, and a simulated planner following hostile retrieved text that must not bypass runtime authorization. This is not a live-model prompt-injection evaluation.
 
 Check policy retrieval ranking, freshness, and output minimization without an API request:
 
@@ -62,7 +62,14 @@ The `policy-retrieval-v1` set has eleven synthetic paraphrase, multi-policy, sta
 
 ## Run the unstructured-data and vector retrieval lab
 
-The new RAG lab uses only the Python standard library and synthetic Markdown policies; its manifest loader also accepts static HTML, preserving headings and tables while omitting common script/style/navigation/footer boilerplate. It normalizes and parses heading structure, chunks with overlap, creates stable chunk IDs and source hashes, writes vectors plus metadata to SQLite, and supports dense, BM25-style lexical, and reciprocal-rank-fused hybrid retrieval. Every path applies the requested tenant and classification filters:
+The RAG lab uses synthetic Markdown policies and supports static HTML plus bounded `.docx` extraction. Optional PDF support uses `pypdf` for selectable text and accepts an injected OCR adapter for pages with no selectable text. It preserves page markers, records OCR confidence in the page heading, and rejects low-confidence OCR, encrypted, malformed, or over-limit input. No PDF renderer or OCR engine is bundled; mixed pages that contain selectable text plus scanned images are not OCRed. Install the optional parser dependency and run its focused fixture checks with:
+
+```sh
+python3 -m pip install -r requirements-pdf.txt
+python3 run_pdf_checks.py
+```
+
+HTML extraction preserves headings/tables and omits common script/style/navigation/footer boilerplate. The bounded DOCX parser maps common heading styles, turns directly marked list paragraphs into bullets, keeps basic table rows and page-break markers, rejects DTD/entity declarations, and enforces package size/member limits. It does not resolve list numbering, extract images/OCR, headers/footers, slides, or spreadsheets. The lab normalizes text, chunks with overlap, creates stable chunk IDs and source hashes, writes vectors plus metadata to SQLite, and supports dense, BM25-style lexical, and reciprocal-rank-fused hybrid retrieval. Every retrieval path applies trusted tenant and classification filters:
 
 ```sh
 python3 run_rag_demo.py
@@ -70,7 +77,7 @@ python3 run_rag_demo.py --query "Are delivery dates promised?" --top-k 2
 python3 run_rag_demo.py --tenant another-tenant
 ```
 
-The demo creates `rag-demo.sqlite` in the current directory. The default `HashingEmbedder` is deterministic feature hashing for demonstrating the plumbing; it is not a semantic embedding model. The SQLite store scans eligible rows for exact cosine similarity, so this is not an ANN production database. `run_embedding_checks.py` uses a fake transport to check batching, query/document modes, response validation, error redaction, and atomic ingestion failure without an API key or network access. See [Module 11](../agentic-ai-module-11-data-rag-and-optimization.md) for preprocessing guidance, chunking trade-offs, retrieval evaluation, production embedding/vector-store choices, and current optimization techniques.
+The demo creates `rag-demo.sqlite` in the current directory. The default `HashingEmbedder` is deterministic feature hashing for demonstrating the plumbing; it is not a semantic embedding model. The SQLite store scans eligible rows for exact cosine similarity, so this is not an ANN production database. `run_rag_checks.py` exercises DOCX structure preservation, PII redaction, DTD rejection, HTML cleanup, idempotency, provenance, and access filters. `run_pdf_checks.py` exercises synthetic selectable-text pages and a fake OCR adapter through confidence checks, redaction, chunking, indexing, and retrieval, plus malformed and over-limit rejection. This verifies the adapter contract only; it does not execute OCR on an image. `run_embedding_checks.py` uses a fake transport to check batching, query/document modes, response validation, error redaction, and atomic ingestion failure without an API key or network access. Parser fixtures are synthetic; parse real uploaded files inside a resource-limited isolated worker. See [Module 11](../agentic-ai-module-11-data-rag-and-optimization.md) for preprocessing guidance, chunking trade-offs, retrieval evaluation, production embedding/vector-store choices, and current optimization techniques.
 
 Run the storage/access checks and compare the retrievers on the labeled development and holdout sets:
 
@@ -106,9 +113,10 @@ Check repeated-trial aggregation without making an API request:
 
 ```sh
 python3 run_eval_runner_checks.py
+python3 run_cost_model_checks.py
 ```
 
-These checks use the normal grader with scripted decisions and verify unique task IDs, per-case pass-rate aggregation, failure counts, and metric sample counts.
+`run_eval_runner_checks.py` uses the normal grader with scripted decisions to verify unique task IDs, read-only eligibility/authorization, exact tool-argument grading, Wilson interval and per-case aggregation, failure counts, and metric sample counts. `run_cost_model_checks.py` validates explicit rate cards, TTL-specific pricing, cost coverage, and unavailable estimates without provider calls.
 
 ## Run against Anthropic
 
@@ -121,15 +129,21 @@ export ANTHROPIC_MODEL="your-enabled-model"
 python3 run_live_evals.py
 ```
 
-The live runner makes real API requests and may incur usage charges. It reads the ten versioned cases in [evals/live_scenarios.json](evals/live_scenarios.json) (`support-agent-live-v4`), then reports the final answer, tools used, pending-review state, payment-side-effect count, regular and cache token usage, and elapsed model-call time. Use `--trials 3` to run each case three times; the allowed range is 1–10. To test Anthropic prompt caching, pass `--prompt-caching` (and optionally `--prompt-cache-ttl 1h` after checking current pricing). The cache marker is off by default. This small sandbox prefix may be below the active model's minimum cacheable length; verify nonzero cache read/write metrics before claiming a benefit. The report summarizes per-case pass rates, failure frequencies, and average metrics with sample counts, and records the configured model plus system-prompt, tool-schema, and policy-catalog fingerprints. Repeated trials help reveal variability but do not establish production reliability or a confidence interval. The runner does not estimate money cost because model rates vary. Add `--output eval-results.json` to save a JSON report; reports contain answers and traces, so store them securely. No live API evaluation has been run from this workspace.
+The live runner makes real API requests and may incur usage charges. It reads the ten versioned cases in [evals/live_scenarios.json](evals/live_scenarios.json) (`support-agent-live-v4`), then reports the final answer, tools used, pending-review state, payment-side-effect count, regular and cache token usage, and elapsed model-call time. Use `--trials 3` to run each case three times; the allowed range is 1–10. To test Anthropic prompt caching, pass `--prompt-caching` (and optionally `--prompt-cache-ttl 1h` after checking current pricing). The cache marker is off by default. This small sandbox prefix may be below the active model's minimum cacheable length; verify nonzero cache read/write metrics before claiming a benefit. The report summarizes per-case pass rates, 95% Wilson intervals, failure frequencies, and average metrics with sample counts, and records the configured model plus system-prompt, tool-schema, and policy-catalog fingerprints. These intervals describe repeats on the selected suite and do not establish production reliability or generalization. Add `--rate-card ~/.config/agentic-ai/rate-card.json` to estimate model-token costs with current user-supplied rates; keep this file outside the repository if it contains commercial terms. The report excludes non-model charges. Without a rate card, the runner reports no currency estimate. Add `--output eval-results.json` to save a JSON report; reports contain answers and traces, so store them securely. No live API evaluation has been run from this workspace.
 
-Run the fixed-workflow baseline on exactly the same ten cases:
+For the expanded architecture comparison, select [evals/live_scenarios_v5.json](evals/live_scenarios_v5.json) (`support-agent-live-v5`). It adds clarification, multiple orders, read-only refund eligibility, multiple policy topics, and an unsupported payment-ledger request. [V6](evals/live_scenarios_v6.json) preserves those cases and adds synthetic mid-run session revocation after a private order read. [V7](evals/live_scenarios_v7.json) preserves v6 and changes the return-policy version after refund proposal creation. Before queuing human review, the runtime checks that policy version, current eligibility, amount, and currency still match the proposal. A stale proposal fails closed and the workflow hands off; the scripted evaluator also catches a planner that claims review succeeded anyway. This agent-side check is in-process. The later operator approval transaction separately rechecks current policy/order terms in SQLite while writing approval and outbox rows atomically. That demonstrates serialization in one local database, not atomicity across production services. A production implementation should use an authoritative datastore transaction or versioned compare-and-swap at each consequential boundary. Reports include dataset path and SHA-256 plus pass rates by tag. The v4 dataset remains unchanged as a regression set.
+
+Run the fixed-workflow baseline on either dataset. To reproduce the expanded comparison:
 
 ```sh
-python3 run_workflow_baseline.py
+python3 run_workflow_baseline.py --dataset evals/live_scenarios_v5.json
+python3 run_workflow_baseline.py --dataset evals/live_scenarios_v6.json
+python3 run_workflow_baseline.py --dataset evals/live_scenarios_v7.json
+python3 run_live_evals.py --dataset evals/live_scenarios_v7.json --trials 3 --output live-v7.json
+# Add --rate-card ~/.config/agentic-ai/rate-card.json to estimate model-token charges from current rates.
 ```
 
-The latest local run (2026-10-06) passed **10/10**, using twelve tool calls and zero model calls. This shows the hand-built workflow covers the current small dataset; it does not show that a keyword router covers the full range of real support requests. Run the live agent suite against the same dataset before comparing quality and operating cost.
+The v4 baseline passes **10/10**, using twelve tool calls and zero model calls. The v5 baseline passes **12/15**; v6 passes **13/16**; v7 passes **14/17**, using twenty tool calls and zero model calls. The three remaining gaps are the two-order comparison, the two-policy-topic request, and explicit abstention on card-ledger status. These runs are synthetic architecture discriminators, not measures of live-agent performance. Run the live agent suite against the same v7 dataset before comparing quality, latency, and operating cost.
 
 ## What the prototype demonstrates
 
@@ -137,19 +151,20 @@ The latest local run (2026-10-06) passed **10/10**, using twelve tool calls and 
 - The authenticated subject and task ID come from trusted runtime context, not the planner’s arguments.
 - Order access is checked by the data service.
 - The planner can prepare a refund proposal and request human review; it cannot issue a refund.
+- Read-only refund eligibility is a separate tool from creating a proposal or requesting review.
 - A small deterministic workflow baseline can be run on the same evaluation cases.
 - Review requests are idempotent for a task and proposal.
-- SQLite run journaling supports restart and replay in a single-worker teaching setup.
+- SQLite run journaling supports restart/replay, expiring worker leases, fencing tokens, and state-version compare-and-swap in a local teaching setup.
 - An operator approval and an outbox action are committed together; a mock provider uses a stable idempotency key during retries.
 - The loop has explicit turn and tool-call limits, and records a trace.
 
 ## What it does not demonstrate yet
 
-`ScriptedPlanner` supplies predetermined choices so the scenarios are deterministic. It exercises the orchestration and authorization envelope, but it does not measure model reasoning. `run_live_evals.py` can measure a small amount of actual model behavior, including ownership override and private-note extraction requests, but it has not been run from this workspace. The private note is filtered before model context, so this checks data minimization rather than the model's response to a poisoned retrieved document. This narrow set is not broad prompt-injection assurance. The live runner captures latency and tokens, but not currency cost.
+`ScriptedPlanner` supplies predetermined choices so the scenarios are deterministic. It exercises the orchestration and authorization envelope, but it does not measure model reasoning. `run_live_evals.py` can measure a small amount of actual model behavior, including ownership override and private-note extraction requests, but it has not been run from this workspace. The private note is filtered before model context, so this checks data minimization rather than the model's response to a poisoned retrieved document. This narrow set is not broad prompt-injection assurance. The live runner can estimate model-token charges with an optional explicit rate card, but does not estimate tool, infrastructure, tax, or other provider costs.
 
 `AnthropicPlanner` implements the provider adapter using the Messages API. The application keeps tool execution in `ToolRuntime`, rechecks permissions, and applies its own turn and tool budgets. The adapter asks for one tool per response; if Claude returns several tool calls in one response, the run hands off without executing them. This keeps the first implementation serial and bounded; a later design can add safe batch handling if measured tasks benefit from it.
 
-The code is a teaching prototype, not a production service. The application can use SQLite for durable runs and approval/outbox state, but the demonstration assumes one active worker and does not implement worker leases across the run journal, an identity provider, a real payment integration, production-grade trace redaction, or operational recovery workflows. The mock payment provider has its own local idempotency ledger; a real provider must offer equivalent idempotency or a reconciliation strategy. Review traces before storing them in a real service.
+The code is a teaching prototype, not a production service. The run journal uses SQLite transactions for local claims and rejects expired or stale journal writes. A background heartbeat renews the lease while calls are in flight and journal writes fail closed after heartbeat loss. A lease cannot revoke an external request already in flight, so consequential downstream writes still need idempotency or fencing and reconciliation. The prototype does not demonstrate multi-host database behavior, heartbeat behavior under provider/network failures, an identity provider, a real payment integration, production-grade trace redaction, or operational recovery workflows. The mock payment provider has its own local idempotency ledger; a real provider must offer equivalent idempotency or a reconciliation strategy. Review traces before storing them in a real service.
 
 ## Official implementation references
 

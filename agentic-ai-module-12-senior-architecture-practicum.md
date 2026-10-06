@@ -4,7 +4,7 @@
 
 This final practicum turns the eleven preceding modules into one reviewable system design. Produce an architecture dossier another senior engineer could implement and an architect could review for product fit, interfaces, data, risk, cost, reliability, and operations.
 
-This is a design exercise, not a production-readiness certificate. The support-agent sandbox is synthetic and single-worker. Its local checks establish only the properties they exercise. Stronger evidence requires representative workloads, approved data, real identity/provider integrations, operational owners, and deliberate failure drills.
+This is a design exercise, not a production-readiness certificate. The support-agent sandbox uses synthetic data and now demonstrates local SQLite worker leases, fencing, compare-and-swap, a two-thread claim race, and heartbeat behavior during slow/failing simulated tool calls. Those checks do not establish multi-host database behavior, provider/network failure behavior, real identity/provider integrations, production load, or operational readiness. Stronger evidence requires representative workloads, approved data, operational owners, and deliberate failure drills.
 
 At the end, defend these decisions:
 

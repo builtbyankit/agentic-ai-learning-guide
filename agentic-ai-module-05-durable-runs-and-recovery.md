@@ -24,6 +24,8 @@ stateDiagram-v2
 
 The `waiting_for_human` state is conceptually separate from an agent turn. In the teaching code, the tool result records a pending review and the agent may then answer that it is waiting. A real service should persist a task status that allows the worker to sleep until an operator decision arrives.
 
+Worker ownership is a separate lease attached to a nonterminal run, not a business status. The journal increments a fencing token on takeover and a state version on each accepted event. A slow or expired worker cannot write to the journal using an old token/version; the downstream tool still needs idempotency or downstream fencing if its request may already be in flight.
+
 ## What must survive a restart?
 
 For one run, persist enough information to resume correctly:
@@ -60,10 +62,11 @@ For more complex services, write the business state and an outbox event in one d
 The sandbox now includes:
 
 - `SQLiteRunJournal`: records decisions and tool results, reconstructs Anthropic tool-call messages, and resumes unfinished runs.
+- Expiring worker leases with monotonically increasing fencing tokens, a background heartbeat during model/tool calls, and state-version compare-and-swap on journal writes.
 - `SQLiteIdempotencyStore`: returns the same proposal/review result after restart and rejects an operation key reused with different request data.
 - An optional `journal` argument on `AgentLoop.run`.
 - Optional durable proposal/review storage on `ToolRuntime`.
-- `run_durability_checks.py`: simulates crashes around tool execution and process restart.
+- `run_durability_checks.py`: simulates crashes, process restart, simultaneous claims, lease takeover, stale-worker writes, terminal-run claims, and migration from the earlier journal schema.
 
 Run:
 
@@ -71,13 +74,13 @@ Run:
 python3 run_durability_checks.py
 ```
 
-The five local checks cover recovery after a review write but before its result is journaled, completed-run replay without another planner call, conflicting idempotency-key reuse, subject binding, and restoration of Anthropic tool history and token metrics.
+The thirteen local checks cover recovery after a review write but before its result is journaled, completed-run replay without another planner call, conflicting idempotency-key reuse, subject binding, restoration of Anthropic tool history and token metrics, single-worker lease ownership, a concurrent claim race, expired-worker fencing, stale state-version rejection, terminal-run rejection, additive migration from the earlier schema, heartbeat renewal during a slow tool, and fail-closed recovery after heartbeat loss.
 
 ## What these checks establish—and what they do not
 
-They establish that this SQLite teaching implementation can resume the tested serial scenarios and avoid a duplicate review item after the simulated crash. They do not establish multi-worker safety, process-level deployment reliability, secret storage, database backup/restore, external payment semantics, or production readiness.
+They establish the tested SQLite behavior for serial recovery, a local two-thread claim race, and a slow-tool heartbeat: only one active lease wins, a later claimant receives a higher fencing token, an expired worker cannot append to the journal, and a worker whose heartbeat fails stops before recording the tool result. Idempotent replay recovers the simulated review write. They do not establish multi-host deployment reliability, provider-specific behavior during long calls, database backup/restore, secret storage, downstream fencing, external payment semantics, or production readiness.
 
-The journal deliberately assumes one active worker per run. A production orchestrator needs a lease or robust compare-and-swap claim, plus cancellation and stale-lease recovery. This is an explicit limit in `durable_state.py`; the unique idempotency records protect writes, but they do not replace worker coordination.
+`AgentLoop` renews at model/tool boundaries and runs a background heartbeat during calls. If the heartbeat fails, the next journal write fails closed; the worker cannot revoke a request already issued to a tool. Consequential downstream writes still need idempotency or downstream fencing, followed by reconciliation when outcomes are unknown. The local SQLite claim transaction serializes workers on one database; it is not evidence of a distributed database's consistency, failover, or clock behavior. Cancellation, event-schema compatibility, restore drills, and external outcome reconciliation remain to be designed and exercised.
 
 ## Design exercise
 
@@ -91,7 +94,7 @@ Imagine the review worker times out after asking a payment service to issue an a
 
 ## Senior engineering extension: distributed execution
 
-Promote the single-worker journal into an explicit multi-worker state machine before horizontal scale. Define lease owner, expiry, heartbeat, monotonically increasing fencing token, optimistic state version, and compare-and-swap transition for each run. An expired worker must not append results or trigger a later transition after ownership changes. Use database constraints to enforce invariants under races; “check then insert” is not concurrency control.
+Promote this local lease demonstration into a production-grade multi-worker state machine before horizontal scale. Define lease owner, expiry, heartbeat, monotonically increasing fencing token, optimistic state version, and compare-and-swap transition for each run. An expired worker must not append results or trigger a later transition after ownership changes. Use database constraints to enforce invariants under races; “check then insert” is not concurrency control.
 
 Document the consistency model for reads, writes, and resumed runs. Decide whether resume reuses the exact recorded provider transcript, regenerates a decision, or fetches fresh evidence. Replaying a completed decision must not replay a side effect. Keep an explicit `outcome_unknown` state for external writes and reconcile with the downstream system using its idempotency key or authoritative operation lookup.
 

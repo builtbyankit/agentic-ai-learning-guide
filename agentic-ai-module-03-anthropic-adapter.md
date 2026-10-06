@@ -32,13 +32,33 @@ Some model responses can contain multiple tool calls. The current adapter asks f
 
 ## Measure each call
 
-`RunResult.model_metrics` accumulates model turns, input/output tokens, prompt-cache read/write tokens, and elapsed time around each Messages API call. These metrics make quality/cost/latency trade-offs measurable. They do not calculate currency cost; apply the rates for the model and account you actually use. The optional cache marker sits on the stable system prefix after the stable tool definitions; request-specific content remains later in the message list. The cache flag is off by default, and a short prefix may be below the model-specific minimum. Verify actual cache reads/writes before claiming savings. The trace may include customer requests and tool arguments, so a production implementation needs data minimization, redaction, access control, and retention limits before it stores traces.
+`RunResult.model_metrics` accumulates model turns, input/output tokens, prompt-cache read/write tokens split by 5-minute and 1-hour TTL, and elapsed time around each Messages API call. For a full input-token count, include uncached input, cache creation, and cache reads. These metrics help compare cost and latency. The runner can estimate token charges from an explicit rate card; it does not hardcode provider prices. Anthropic's cache prefix order is tools, then system, then messages, so the system breakpoint in this adapter covers the preceding stable tool schemas. The cache flag is off by default, and a short prefix may be below the model-specific minimum. Verify actual cache reads/writes before claiming savings. The trace may include customer requests and tool arguments, so a production implementation needs data minimization, redaction, access control, and retention limits before it stores traces.
+
+### Optional model-token rate card
+
+For a cost comparison, create a local JSON file using the rates currently applicable to the configured model and account. Keep the file outside the repository if its rates reveal commercial terms. The model name must exactly match `ANTHROPIC_MODEL`:
+
+```json
+{
+  "configured_model": "REPLACE_WITH_ANTHROPIC_MODEL",
+  "currency": "USD",
+  "rates_per_million_tokens": {
+    "input": "REPLACE_WITH_RATE",
+    "output": "REPLACE_WITH_RATE",
+    "cache_read": "REPLACE_WITH_RATE",
+    "cache_write_5m": "REPLACE_WITH_RATE",
+    "cache_write_1h": "REPLACE_WITH_RATE"
+  }
+}
+```
+
+Replace every placeholder with the current rate as a non-negative number. Store the file at `~/.config/agentic-ai/rate-card.json`, then run `python3 run_live_evals.py --dataset evals/live_scenarios_v6.json --rate-card ~/.config/agentic-ai/rate-card.json --trials 3 --output live-v6.json`. The report fingerprints the rate card, prices the two cache-write TTLs separately, reports model-token cost per successful trial, and labels the estimate scope. If cache-write token usage lacks a TTL breakdown, the runner marks the estimate unavailable rather than guessing. This excludes tools, infrastructure, taxes, and fees; compare the estimate against your provider invoice.
 
 ## Evaluation state
 
 - The nine deterministic scenarios pass against the harness.
 - Three adapter checks pass with a fake client: one verifies the complete `tool_use` / `tool_result` / final-answer round trip; one verifies the optional prompt-cache marker and usage metrics; one verifies that multiple requested tools are not executed.
-- The live ten-scenario `support-agent-live-v4` evaluation and 1–10 repeat-trial option are ready in `run_live_evals.py`, but have not been run against Anthropic here. Scripted runner checks cover the repeat/aggregation path. Live runs require an Anthropic API key and an account-enabled model and make real API calls.
+- The live evaluator supports `support-agent-live-v4`, v5, and v6 through `--dataset`, with 1–10 repeat trials, 95% Wilson score intervals, synthetic mid-run revocation interventions, and an optional explicit rate card. It has not been run against Anthropic here. Scripted runner checks cover repeat aggregation, dataset grading, session revocation, tag summaries, interval calculations, TTL-specific token usage, and rate-card math. Live runs require an Anthropic API key and an account-enabled model and make real API calls.
 
 The live evaluation checks policy grounding, own-order lookup, cross-customer data protection, eligible and ineligible refund handling, and an instruction attempting to override order ownership. Its synthetic dataset is a starting point, not a production assurance result. Review the actual traces and add failures to the dataset before drawing broader conclusions.
 
@@ -57,7 +77,15 @@ Run the live evaluation and record for each scenario:
 
 Then change only one thing—tool descriptions, system instructions, or the turn budget—and rerun the same scenarios. Explain which metric improved, which regressed, and whether the change is worth keeping.
 
-For the cache experiment, compare `run_live_evals.py` with caching disabled and enabled only when the stable prefix is long enough for the selected model. Keep case order, model, and prompts fixed. Compare cache read/write tokens, latency, and rate-card cost. Do not add irrelevant prompt text just to cross a cache minimum.
+For the cache experiment, run the same cases with caching disabled, with the 5-minute cache, and with the 1-hour cache. Keep model, dataset, trial count, request order, and rate card fixed:
+
+```sh
+python3 run_live_evals.py --dataset evals/live_scenarios_v6.json --rate-card ~/.config/agentic-ai/rate-card.json --trials 3 --output eval-no-cache.json
+python3 run_live_evals.py --dataset evals/live_scenarios_v6.json --rate-card ~/.config/agentic-ai/rate-card.json --trials 3 --prompt-caching --output eval-cache-5m.json
+python3 run_live_evals.py --dataset evals/live_scenarios_v6.json --rate-card ~/.config/agentic-ai/rate-card.json --trials 3 --prompt-caching --prompt-cache-ttl 1h --output eval-cache-1h.json
+```
+
+Compare cache read/write tokens, model latency, pass rates, and estimated token cost per successful trial. Check that the stable prefix exceeds the model's cache minimum and that repeated requests actually register cache reads. These calls use the live provider and may incur charges. Do not add irrelevant prompt text just to cross a cache minimum.
 
 ## Senior engineering extension: provider isolation and drift
 

@@ -31,7 +31,7 @@ The state access is deterministic, the two facts come from known services, and t
 - **Single agent:** Ask the model to choose two read tools and synthesize. Flexible if the request wording changes, but it adds model latency and cost.
 - **Manager with two specialists:** Ask an order agent and a policy agent for structured facts, then have the manager merge them. Both specialists call the same known services. That adds calls and coordination without adding a capability or a new policy boundary.
 
-**Choice:** Keep a workflow for this request. The current local suite shows the fixed workflow covers all ten v4 cases, though those cases are small and do not measure live model behavior.
+**Choice:** Keep a workflow for this request. The fixed workflow covers the simple v4 regression suite. Expanded v5/v6 cases show where a fixed router needs additional explicit branches: multiple orders, multiple policy topics, and unsupported payment-ledger questions. V6 also tests a mid-run session revocation. These are synthetic development results, not evidence of live model behavior.
 
 ### Request B: broad, independent investigation
 
@@ -103,7 +103,7 @@ Mark each model call, tool, state write, trust boundary, and approval gate. Pred
 
 ## Checkpoint on this capstone
 
-For the current support assistant, adding an order specialist and a policy specialist is not yet justified: they would access simple services with the same user scope and return facts a small workflow already obtains. A later case with different data permissions or policy ownership could change that. The next experiment should therefore expand representative mixed/ambiguous cases and run the live single-agent evaluator before adding specialists.
+For the current support assistant, adding an order specialist and a policy specialist is not yet justified: they would access simple services with the same user scope. The v5/v6 workflow misses a request that needs two policy lookups and a separate comparison across two orders, but a bounded workflow can be extended to handle both. The next experiment is to run the live single-agent evaluator against v6 and see whether it handles the broader request surface reliably enough to justify model judgment and its added cost before adding specialists.
 
 ## Senior engineering extension: delegation as capability attenuation
 

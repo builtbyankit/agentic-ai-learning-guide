@@ -45,6 +45,24 @@ class ApprovalError(Exception):
 class RefundApprovalOutbox:
     """Record a human decision and enqueue its exact action in one transaction."""
 
+    DEFAULT_AUTHORITY_STATE = {
+        "policy_version": "returns-v1",
+        "orders": {
+            "ORD-100": {
+                "owner": "customer-ada",
+                "eligible": True,
+                "amount_cents": 2000,
+                "currency": "USD",
+            },
+            "ORD-200": {
+                "owner": "customer-blair",
+                "eligible": False,
+                "amount_cents": 4550,
+                "currency": "USD",
+            },
+        },
+    }
+
     def __init__(
         self,
         database_path: str | Path,
@@ -53,10 +71,22 @@ class RefundApprovalOutbox:
     ):
         self.database_path = str(database_path)
         self.proposal_store = proposal_store
+        if Path(proposal_store.database_path).resolve() != Path(self.database_path).resolve():
+            raise ValueError("Proposal, review, authority, approval, and outbox state must share one database.")
         self.authorized_operators = set(authorized_operators)
         Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
         with _connect(self.database_path) as connection:
             connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS refund_authority_state (
+                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                    state_json TEXT NOT NULL
+                )"""
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO refund_authority_state(singleton, state_json) VALUES (1, ?)",
+                (json.dumps(self.DEFAULT_AUTHORITY_STATE, ensure_ascii=False, sort_keys=True),),
+            )
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS refund_approvals (
                     proposal_id TEXT PRIMARY KEY,
@@ -84,6 +114,81 @@ class RefundApprovalOutbox:
                     updated_at_epoch REAL NOT NULL
                 )"""
             )
+
+    def update_authoritative_state(
+        self,
+        *,
+        policy_version: str | None = None,
+        order_updates: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Change current policy/order facts in the same database used by approval."""
+        if policy_version is not None and (
+            not isinstance(policy_version, str) or not policy_version.strip() or len(policy_version) > 64
+        ):
+            raise ValueError("Policy version must be non-empty text of at most 64 characters.")
+        order_updates = order_updates or {}
+        allowed_fields = {"owner", "eligible", "amount_cents", "currency"}
+        for order_ref, changes in order_updates.items():
+            if not isinstance(order_ref, str) or not isinstance(changes, dict) or not changes:
+                raise ValueError("Order updates must map a known order reference to non-empty changes.")
+            if set(changes) - allowed_fields:
+                raise ValueError("Order update contains an unsupported field.")
+            if "owner" in changes and (
+                not isinstance(changes["owner"], str) or not changes["owner"].strip()
+            ):
+                raise ValueError("Order owner must be non-empty text.")
+            if "eligible" in changes and not isinstance(changes["eligible"], bool):
+                raise ValueError("Order eligibility must be a boolean.")
+            if "amount_cents" in changes and (
+                isinstance(changes["amount_cents"], bool)
+                or not isinstance(changes["amount_cents"], int)
+                or changes["amount_cents"] < 0
+            ):
+                raise ValueError("Order amount must be a non-negative integer number of cents.")
+            if "currency" in changes and (
+                not isinstance(changes["currency"], str)
+                or len(changes["currency"]) != 3
+                or not changes["currency"].isalpha()
+            ):
+                raise ValueError("Currency must be a three-letter code.")
+
+        with _connect(self.database_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT state_json FROM refund_authority_state WHERE singleton = 1"
+            ).fetchone()
+            state = json.loads(row["state_json"])
+            if policy_version is not None:
+                state["policy_version"] = policy_version
+            for order_ref, changes in order_updates.items():
+                if order_ref not in state["orders"]:
+                    connection.rollback()
+                    raise ValueError("Order update refers to an unknown order.")
+                state["orders"][order_ref].update(changes)
+            connection.execute(
+                "UPDATE refund_authority_state SET state_json = ? WHERE singleton = 1",
+                (json.dumps(state, ensure_ascii=False, sort_keys=True),),
+            )
+            connection.commit()
+        return state
+
+    @staticmethod
+    def _matches_current_authority(connection: sqlite3.Connection, proposal: dict[str, Any]) -> bool:
+        row = connection.execute(
+            "SELECT state_json FROM refund_authority_state WHERE singleton = 1"
+        ).fetchone()
+        if row is None:
+            return False
+        current = json.loads(row["state_json"])
+        order = current["orders"].get(proposal["order_ref"])
+        return bool(
+            current["policy_version"] == proposal["policy_version"]
+            and order is not None
+            and order["owner"] == proposal["owner"]
+            and order["eligible"] is True
+            and order["amount_cents"] == proposal["amount_cents"]
+            and order["currency"] == proposal["currency"]
+        )
 
     def _load_pending_proposal(self, proposal_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
         proposal = self.proposal_store.get("proposals", proposal_id)
@@ -113,10 +218,6 @@ class RefundApprovalOutbox:
         digest = proposal_digest(proposal)
         if expected_digest != digest:
             raise ApprovalError("Proposal changed after it was presented for approval.")
-        now = time.time() if now_epoch is None else now_epoch
-        if now >= proposal["expires_at_epoch"]:
-            raise ApprovalError("Refund proposal has expired.")
-
         approval_id = _stable_id("approval", proposal_id, digest)
         outbox_id = _stable_id("refund-outbox", proposal_id, digest)
         idempotency_key = f"refund:{proposal_id}:{digest}"
@@ -152,9 +253,17 @@ class RefundApprovalOutbox:
                 connection.rollback()
                 raise ApprovalError(f"Proposal already has status {existing['status']}.")
 
+            decision_epoch = time.time() if now_epoch is None else now_epoch
+            if decision_epoch >= proposal["expires_at_epoch"]:
+                connection.rollback()
+                raise ApprovalError("Refund proposal has expired.")
+            if not self._matches_current_authority(connection, proposal):
+                connection.rollback()
+                raise ApprovalError("Refund proposal is stale; current policy or order facts changed.")
+
             connection.execute(
                 "INSERT INTO refund_approvals(proposal_id, proposal_digest, operator_id, status, approval_id, decided_at_epoch) VALUES (?, ?, ?, 'approved', ?, ?)",
-                (proposal_id, digest, operator_id, approval_id, now),
+                (proposal_id, digest, operator_id, approval_id, decision_epoch),
             )
             connection.execute(
                 """INSERT INTO refund_outbox(
@@ -168,8 +277,8 @@ class RefundApprovalOutbox:
                     digest,
                     idempotency_key,
                     json.dumps(payload, ensure_ascii=False, sort_keys=True),
-                    now,
-                    now,
+                    decision_epoch,
+                    decision_epoch,
                 ),
             )
             connection.commit()

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from hashlib import sha256
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from policy_retrieval import PolicyCatalog
 
@@ -113,8 +115,18 @@ ANTHROPIC_TOOLS = [
         },
     },
     {
+        "name": "check_refund_eligibility",
+        "description": "Check whether the customer's order meets the current refund eligibility rule. Read-only; does not create a proposal or submit a review request.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"order_ref": {"type": "string"}},
+            "required": ["order_ref"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "prepare_refund_proposal",
-        "description": "Check refund eligibility and prepare a proposal. This does not issue a refund.",
+        "description": "Prepare a refund proposal for a refund request. This does not issue a refund; use check_refund_eligibility for read-only eligibility questions.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -205,12 +217,19 @@ class AnthropicPlanner:
             tools=ANTHROPIC_TOOLS,
             messages=messages,
         )
+        cache_creation = getattr(response.usage, "cache_creation", None)
         metrics: dict[str, int | float] = {
             "model_turns": 1,
             "input_tokens": response.usage.input_tokens,
             "output_tokens": response.usage.output_tokens,
             "cache_read_input_tokens": getattr(response.usage, "cache_read_input_tokens", 0),
             "cache_creation_input_tokens": getattr(response.usage, "cache_creation_input_tokens", 0),
+            "cache_creation_5m_input_tokens": _nested_usage_value(
+                cache_creation, "ephemeral_5m_input_tokens"
+            ),
+            "cache_creation_1h_input_tokens": _nested_usage_value(
+                cache_creation, "ephemeral_1h_input_tokens"
+            ),
             "latency_ms": round((time.perf_counter() - started) * 1000, 1),
         }
         blocks = [_serialize_block(block) for block in response.content]
@@ -246,6 +265,14 @@ def _serialize_block(block: Any) -> dict[str, Any]:
     raise TypeError("Unsupported Anthropic content block.")
 
 
+def _nested_usage_value(container: Any, key: str) -> int:
+    if isinstance(container, dict):
+        return int(container.get(key, 0) or 0)
+    if container is None:
+        return 0
+    return int(getattr(container, key, 0) or 0)
+
+
 def _resolve_last_refs(value: Any, last_result: dict[str, Any]) -> Any:
     if isinstance(value, dict):
         if set(value) == {"$last"}:
@@ -268,9 +295,16 @@ class ToolRuntime:
 
     RETURN_POLICY_VERSION = "returns-v1"
 
-    def __init__(self, idempotency_store: Any = None, clock: Any = None) -> None:
+    def __init__(
+        self,
+        idempotency_store: Any = None,
+        clock: Any = None,
+        subject_is_active: Callable[[str], bool] | None = None,
+    ) -> None:
         self.idempotency_store = idempotency_store
         self.clock = clock or time.time
+        self.subject_is_active = subject_is_active or (lambda _subject_id: True)
+        self.current_policy_version = self.RETURN_POLICY_VERSION
         self._orders = {
             "ORD-100": {
                 "owner": "customer-ada",
@@ -298,10 +332,19 @@ class ToolRuntime:
         # Deliberately no payment execution method or refund side effect exists here.
         self.payment_events: list[dict[str, Any]] = []
 
+    def assert_active(self, context: RunContext) -> None:
+        try:
+            active = bool(self.subject_is_active(context.subject_id))
+        except Exception as exc:
+            raise ToolError("Authenticated session could not be validated.") from exc
+        if not active:
+            raise ToolError("Authenticated session is no longer active.")
+
     def call(self, name: str, arguments: dict[str, Any], context: RunContext) -> dict[str, Any]:
         dispatch = {
             "search_policy": self._search_policy,
             "get_order": self._get_order,
+            "check_refund_eligibility": self._check_refund_eligibility,
             "prepare_refund_proposal": self._prepare_refund_proposal,
             "request_human_review": self._request_human_review,
         }
@@ -323,6 +366,7 @@ class ToolRuntime:
         return {"matches": self.policy_catalog.search(topic)}
 
     def _get_order(self, arguments: dict[str, Any], context: RunContext) -> dict[str, Any]:
+        self.assert_active(context)
         self._require_exact_keys(arguments, {"order_ref"})
         order_ref = arguments["order_ref"]
         if not isinstance(order_ref, str) or not order_ref.strip() or len(order_ref) > 64:
@@ -339,9 +383,27 @@ class ToolRuntime:
             "items": list(order["items"]),
         }
 
+    def _check_refund_eligibility(
+        self, arguments: dict[str, Any], context: RunContext
+    ) -> dict[str, Any]:
+        self.assert_active(context)
+        self._require_exact_keys(arguments, {"order_ref"})
+        order_ref = arguments["order_ref"]
+        if not isinstance(order_ref, str) or not order_ref.strip() or len(order_ref) > 64:
+            raise ToolError("Order reference must be non-empty text of at most 64 characters.")
+        order = self._orders.get(order_ref)
+        if order is None or order["owner"] != context.subject_id:
+            raise ToolError("Order not found or not accessible.")
+        return {
+            "order_ref": order_ref,
+            "eligible": bool(order["return_eligible"]),
+            "policy_version": self.current_policy_version,
+        }
+
     def _prepare_refund_proposal(
         self, arguments: dict[str, Any], context: RunContext
     ) -> dict[str, Any]:
+        self.assert_active(context)
         self._require_exact_keys(arguments, {"order_ref", "reason"})
         order_ref, reason = arguments["order_ref"], arguments["reason"]
         if (
@@ -356,7 +418,12 @@ class ToolRuntime:
         order = self._orders.get(order_ref)
         if order is None or order["owner"] != context.subject_id:
             raise ToolError("Order not found or not accessible.")
-        proposal_id = _stable_id(context.task_id, order_ref, reason.strip().lower())
+        proposal_id = _stable_id(
+            context.task_id,
+            order_ref,
+            reason.strip().lower(),
+            self.current_policy_version,
+        )
         created_at = self.clock()
         proposal = {
             "proposal_id": proposal_id,
@@ -368,7 +435,7 @@ class ToolRuntime:
             "status": "awaiting_human_review" if order["return_eligible"] else "ineligible",
             "amount_cents": order["amount_cents"],
             "currency": order["currency"],
-            "policy_version": self.RETURN_POLICY_VERSION,
+            "policy_version": self.current_policy_version,
             "created_at_epoch": created_at,
             "expires_at_epoch": created_at + 24 * 60 * 60,
         }
@@ -381,7 +448,7 @@ class ToolRuntime:
                     "owner": context.subject_id,
                     "order_ref": order_ref,
                     "reason": reason.strip(),
-                    "policy_version": self.RETURN_POLICY_VERSION,
+                    "policy_version": self.current_policy_version,
                 },
                 proposal,
             )
@@ -401,6 +468,7 @@ class ToolRuntime:
     def _request_human_review(
         self, arguments: dict[str, Any], context: RunContext
     ) -> dict[str, Any]:
+        self.assert_active(context)
         self._require_exact_keys(arguments, {"proposal_id"})
         proposal_id = arguments["proposal_id"]
         if not isinstance(proposal_id, str) or not proposal_id.strip() or len(proposal_id) > 64:
@@ -414,6 +482,16 @@ class ToolRuntime:
             raise ToolError("Proposal not found or not accessible.")
         if not proposal["eligible"] or proposal["status"] != "awaiting_human_review":
             raise ToolError("This proposal is not eligible for review.")
+        order = self._orders.get(proposal["order_ref"])
+        if (
+            proposal["policy_version"] != self.current_policy_version
+            or order is None
+            or order["owner"] != context.subject_id
+            or not order["return_eligible"]
+            or order["amount_cents"] != proposal["amount_cents"]
+            or order["currency"] != proposal["currency"]
+        ):
+            raise ToolError("This proposal is stale and must be prepared again before review.")
         if self.clock() >= proposal["expires_at_epoch"]:
             raise ToolError("This proposal has expired and cannot be submitted for review.")
         review_id = _stable_id(context.task_id, proposal_id, "human-review")
@@ -460,7 +538,76 @@ class RunResult:
     model_metrics: dict[str, int | float] = field(default_factory=dict)
 
 
+class _LeaseHeartbeat:
+    """Renew a run lease during model/tool calls and serialize journal writes."""
+
+    def __init__(self, journal: Any, lease: Any):
+        self.journal = journal
+        self.lease = lease
+        lease_seconds = float(journal.lease_seconds)
+        self.interval_seconds = max(0.001, lease_seconds / 3)
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._failure: BaseException | None = None
+        self._thread = threading.Thread(
+            target=self._run,
+            name=f"agent-run-heartbeat-{lease.run_id}",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def _raise_if_failed(self) -> None:
+        if self._failure is not None:
+            raise self._failure
+
+    def _renew_locked(self) -> None:
+        self._raise_if_failed()
+        self.lease = self.journal.renew_lease(self.lease)
+
+    def renew(self) -> None:
+        with self._lock:
+            if self._stop.is_set():
+                return
+            self._renew_locked()
+
+    def write(self, operation, *args):
+        with self._lock:
+            self._raise_if_failed()
+            result = operation(self.lease, *args)
+            if hasattr(result, "state_version") and hasattr(result, "fencing_token"):
+                self.lease = result
+            return result
+
+    def finish(self, result: RunResult) -> None:
+        with self._lock:
+            self._raise_if_failed()
+            self._stop.set()
+            self.journal.finish_run(self.lease, result)
+        self._thread.join()
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval_seconds):
+            with self._lock:
+                if self._stop.is_set():
+                    return
+                try:
+                    self._renew_locked()
+                except BaseException as exc:
+                    self._failure = exc
+                    self._stop.set()
+                    return
+
+    def close(self) -> None:
+        self._stop.set()
+        if self._thread.ident is not None:
+            self._thread.join()
+
+
 class AgentLoop:
+    SESSION_REAUTH_MESSAGE = "Your session could not be verified. Please sign in again to continue."
+
     def __init__(self, runtime: ToolRuntime, max_turns: int = 6, max_tool_calls: int = 4):
         self.runtime = runtime
         self.max_turns = max_turns
@@ -472,6 +619,7 @@ class AgentLoop:
         context: RunContext,
         planner: Planner,
         journal: Any = None,
+        worker_id: str | None = None,
     ) -> RunResult:
         run_id = context.task_id
         observations: list[dict[str, Any]] = []
@@ -482,6 +630,8 @@ class AgentLoop:
             "output_tokens": 0,
             "cache_read_input_tokens": 0,
             "cache_creation_input_tokens": 0,
+            "cache_creation_5m_input_tokens": 0,
+            "cache_creation_1h_input_tokens": 0,
             "latency_ms": 0,
         }
         if not isinstance(request, str) or not request.strip() or len(request) > MAX_USER_REQUEST_CHARS:
@@ -492,8 +642,13 @@ class AgentLoop:
                 0,
                 model_metrics,
             )
+        try:
+            self.runtime.assert_active(context)
+        except ToolError:
+            return RunResult("handoff", self.SESSION_REAUTH_MESSAGE, trace, 0, model_metrics)
         previous_turns = 0
         pending_decision: Decision | None = None
+        lease_heartbeat: _LeaseHeartbeat | None = None
         if journal is not None:
             journal.start_run(run_id, request, context)
             snapshot = journal.snapshot(run_id)
@@ -501,16 +656,36 @@ class AgentLoop:
                 return snapshot.terminal_result
             if snapshot.status != "running":
                 raise RuntimeError(f"Run cannot resume from status {snapshot.status}.")
+            try:
+                lease = journal.claim_run(run_id, worker_id or uuid.uuid4().hex)
+            except RuntimeError:
+                # Another worker may have finished between the initial read and claim.
+                latest = journal.snapshot(run_id)
+                if latest.terminal_result is not None:
+                    return latest.terminal_result
+                raise
+            # Claim first, then reconstruct state from a consistent journal read.
+            snapshot = journal.snapshot(run_id)
+            if snapshot.terminal_result is not None:
+                return snapshot.terminal_result
             observations = snapshot.observations
             trace = snapshot.tool_trace
             model_metrics = snapshot.model_metrics
             previous_turns = snapshot.turns
             pending_decision = snapshot.pending_decision
+            lease_heartbeat = _LeaseHeartbeat(journal, lease)
+            lease_heartbeat.start()
 
         def finish(status: str, answer: str, turns: int) -> RunResult:
+            if status == "complete":
+                try:
+                    self.runtime.assert_active(context)
+                except ToolError:
+                    status = "handoff"
+                    answer = self.SESSION_REAUTH_MESSAGE
             result = RunResult(status, answer, trace, turns, model_metrics)
             if journal is not None:
-                journal.finish_run(run_id, result)
+                lease_heartbeat.finish(result)
             return result
 
         def apply_decision(decision: Decision, turn: int, persist: bool) -> RunResult | dict[str, Any] | None:
@@ -518,7 +693,7 @@ class AgentLoop:
                 for metric, value in decision.model_metrics.items():
                     model_metrics[metric] = model_metrics.get(metric, 0) + value
                 if journal is not None:
-                    journal.record_decision(run_id, turn, decision)
+                    lease_heartbeat.write(journal.record_decision, turn, decision)
             if decision.kind == "final":
                 return finish("complete", decision.text, turn)
             if decision.kind == "handoff":
@@ -527,6 +702,8 @@ class AgentLoop:
                 return finish("error", "The planner returned an unsupported action.", turn)
             if len(trace) >= self.max_tool_calls:
                 return finish("limit", "The tool-call limit was reached; handing off for help.", turn)
+            if journal is not None:
+                lease_heartbeat.renew()
             try:
                 result = self.runtime.call(decision.tool_name, decision.arguments, context)
                 observation = {"tool": decision.tool_name, "ok": True, "result": result}
@@ -536,11 +713,21 @@ class AgentLoop:
                     "ok": False,
                     "result": {"error": str(exc)},
                 }
+            session_revoked = False
+            try:
+                self.runtime.assert_active(context)
+            except ToolError:
+                session_revoked = True
+                observation = {
+                    "tool": decision.tool_name,
+                    "ok": False,
+                    "result": {"error": "Authenticated session could not be verified; tool result discarded."},
+                }
             if decision.provider_message is not None:
                 observation["_assistant_content"] = decision.provider_message
                 observation["_tool_use_id"] = decision.tool_use_id
             if journal is not None:
-                journal.record_tool_result(run_id, turn, observation)
+                lease_heartbeat.write(journal.record_tool_result, turn, observation)
             observations.append(observation)
             trace.append(
                 {
@@ -550,28 +737,44 @@ class AgentLoop:
                     "result": observation["result"],
                 }
             )
+            if session_revoked:
+                return finish("handoff", self.SESSION_REAUTH_MESSAGE, turn)
             return observation
 
-        if pending_decision is not None:
-            if pending_decision.kind in ("final", "handoff"):
-                status = "complete" if pending_decision.kind == "final" else "handoff"
-                return finish(status, pending_decision.text, previous_turns)
-            if pending_decision.kind != "tool":
-                return finish("error", "The saved planner action is unsupported.", previous_turns)
-            # Re-execute an interrupted tool request. Exposed writes must be idempotent.
-            replayed = apply_decision(pending_decision, previous_turns, persist=False)
-            if isinstance(replayed, RunResult):
-                return replayed
+        try:
+            if pending_decision is not None:
+                if pending_decision.kind in ("final", "handoff"):
+                    status = "complete" if pending_decision.kind == "final" else "handoff"
+                    return finish(status, pending_decision.text, previous_turns)
+                if pending_decision.kind != "tool":
+                    return finish("error", "The saved planner action is unsupported.", previous_turns)
+                # Re-execute an interrupted tool request. Exposed writes must be idempotent.
+                replayed = apply_decision(pending_decision, previous_turns, persist=False)
+                if isinstance(replayed, RunResult):
+                    return replayed
 
-        turn = previous_turns + 1
-        while turn <= self.max_turns:
-            decision = planner.next_action(request, observations)
-            result_or_observation = apply_decision(decision, turn, persist=True)
-            if isinstance(result_or_observation, RunResult):
-                return result_or_observation
-            turn += 1
-        return finish(
-            "limit",
-            "The turn limit was reached; handing off for help.",
-            self.max_turns,
-        )
+            turn = previous_turns + 1
+            while turn <= self.max_turns:
+                if journal is not None:
+                    lease_heartbeat.renew()
+                try:
+                    self.runtime.assert_active(context)
+                except ToolError:
+                    return finish("handoff", self.SESSION_REAUTH_MESSAGE, turn - 1)
+                decision = planner.next_action(request, observations)
+                try:
+                    self.runtime.assert_active(context)
+                except ToolError:
+                    return finish("handoff", self.SESSION_REAUTH_MESSAGE, turn - 1)
+                result_or_observation = apply_decision(decision, turn, persist=True)
+                if isinstance(result_or_observation, RunResult):
+                    return result_or_observation
+                turn += 1
+            return finish(
+                "limit",
+                "The turn limit was reached; handing off for help.",
+                self.max_turns,
+            )
+        finally:
+            if lease_heartbeat is not None:
+                lease_heartbeat.close()

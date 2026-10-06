@@ -1,0 +1,55 @@
+site_name: Agentic AI Mastery
+site_description: A senior-level learning path for agentic AI engineering and system architecture.
+repo_url: https://github.com/builtbyankit/agentic-ai-learning-guide
+docs_dir: .pages-docs
+site_dir: site
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - toc:
+      permalink: true
+
+nav:
+  - Home: README.md
+  - Roadmap: agentic-ai-mastery-roadmap.md
+  - Curriculum:
+      - Module 1 — System Boundaries: agentic-ai-module-01-system-boundaries.md
+      - Module 2 — Tool Loop and Evaluation: agentic-ai-module-02-tool-loop-and-evaluation.md
+      - Module 3 — Anthropic Adapter: agentic-ai-module-03-anthropic-adapter.md
+      - Module 4 — Agent Evaluation: agentic-ai-module-04-agent-evaluation.md
+      - Module 5 — Durable Runs and Recovery: agentic-ai-module-05-durable-runs-and-recovery.md
+      - Module 6 — Human Approval and Outbox: agentic-ai-module-06-human-approval-outbox.md
+      - Module 7 — Security Threat Model: agentic-ai-module-07-agent-security-threat-model.md
+      - Module 8 — Production Architecture and Operations: agentic-ai-module-08-production-architecture-and-operations.md
+      - Module 9 — Orchestration and Multi-Agent Design: agentic-ai-module-09-orchestration-and-multi-agent-design.md
+      - Module 10 — Context, Retrieval, and Memory: agentic-ai-module-10-context-retrieval-and-memory.md
+      - Module 11 — Unstructured Data, RAG, and Optimization: agentic-ai-module-11-data-rag-and-optimization.md
+      - Module 12 — Senior Architecture Practicum: agentic-ai-module-12-senior-architecture-practicum.md
+  - Interview Preparation: agentic-ai-interview-preparation.md
+  - Worked Project Example: agentic-ai-project-example-harper.md
+  - Sandbox:
+      - Guide: agentic-ai-sandbox/README.md
+      - Evaluation Datasets: agentic-ai-sandbox/evals/README.md
+  - Evaluation Report: agentic-ai-evaluation-report-2026-10-07.md
+
+exclude_docs: |
+  **/__pycache__/
+  **/*.py[cod]
+
+not_in_nav: |
+  /agentic-ai-sandbox/knowledge/**
