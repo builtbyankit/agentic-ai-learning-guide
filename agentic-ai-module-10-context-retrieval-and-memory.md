@@ -21,7 +21,7 @@ Do not put a payment credential, raw customer profile, guessed preference, or un
 
 For one request, the harness provides the user text and Anthropic tool definitions. After a tool call, it appends the structured result to the next model input. The order tool returns only the status, estimated delivery, and item summary after checking ownership. The policy tool returns an article ID, version, effective date, and bounded text excerpt. The SQLite run journal stores the request, model decisions, tool results, and provider tool-call transcript so it can rebuild the same tool history after restart.
 
-There is no cross-session customer memory, no vector database, and no arbitrary document corpus. That is intentional for this training case: one policy article and two mock orders do not justify embedding, chunking, reranking, or a memory service. The current context is small and bounded by the turn and tool-call limits. A more complex product should add retrieval only when a measured task needs it.
+The support-agent runtime has no cross-session customer memory and does not call the separate SQLite vector/RAG lab. That lab exists in Module 11; it should not be confused with the support-agent policy lookup path. That is intentional for this training case: a small policy catalog and two mock orders do not justify embedding, chunking, reranking, or a memory service. The current context is small and bounded by the turn and tool-call limits. A more complex product should add retrieval only when a measured task needs it.
 
 ```mermaid
 flowchart LR

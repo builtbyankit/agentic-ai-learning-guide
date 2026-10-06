@@ -1,5 +1,7 @@
 # Module 7 — Threat-Model the Agent, Not Just the Prompt
 
+Baseline revision note: numeric original-workflow results in this document are historical. Reproduce them with `--baseline original`. The improved router now passes 17/17 v7 authored cases with zero model calls; see [upgrade validation](agentic-ai-interview-upgrade-validation.md). The evaluated datasets and prior results were preserved.
+
 ## Learning objective
 
 Identify what an attacker can influence, what the agent can reach, and which deterministic controls contain a failure. Turn each important threat into an evaluation or operational control. A system prompt is one layer; it is not the security boundary.

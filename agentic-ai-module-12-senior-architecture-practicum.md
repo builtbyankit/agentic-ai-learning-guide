@@ -16,6 +16,10 @@ At the end, defend these decisions:
 
 The central review criterion is traceability: every important product requirement maps to an architectural control, an evaluation or operational signal, and an accountable owner.
 
+## Quantitative and interview companions
+
+Use the [worked capacity/cost exercise](agentic-ai-worked-capacity-and-cost.md) to turn assumptions into storage, throughput, quotas, concurrency, latency budgets and reviewer staffing. Use [Mock A and the scoring rubric](agentic-ai-interview-workbook.md) to defend the dossier under changed assumptions. The [advanced labs](agentic-ai-advanced-labs.md) define evidence-building experiments for the open implementation and operations gates.
+
 ## 1. Write the decision brief
 
 Before drawing components, document:

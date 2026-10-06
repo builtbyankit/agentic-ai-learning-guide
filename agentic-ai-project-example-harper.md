@@ -216,45 +216,54 @@ class EvidenceChunk:
 ### Incremental sync pseudocode
 
 ```python
-async def synchronize(source_id: str, connector, parser, index, embedder):
-    source = await connector.fetch_current(source_id)
-    acl = await connector.fetch_current_acl(source_id)
+async def synchronize(tenant_id: str, source_id: str, connector, parser, index, embedder):
+    # Contract: content, ACL, classification and tombstone come from one consistent
+    # source revision. A connector without snapshots needs conditional reads/retries.
+    snapshot = await connector.fetch_consistent_snapshot(tenant_id, source_id)
+    prior = await index.active_record(tenant_id, source_id)
+    expected_active_revision = prior.index_revision if prior else None
 
-    if source.is_deleted:
-        await index.publish_tombstone(source_id, source.version)
+    if snapshot.is_deleted:
+        await index.publish_tombstone_if_newer(
+            tenant_id, source_id, source_revision=snapshot.revision,
+            expected_active_revision=expected_active_revision,
+        )
         return "deleted"
 
-    parsed = await parser.extract_in_isolated_worker(source)
-    canonical = normalize(parsed, source=source, acl=acl)
-    prior = await index.active_record(source_id)
-
-    if prior and prior.content_hash == canonical.content_hash:
-        if prior.acl_principals != canonical.acl_principals:
-            await index.update_acl_and_metadata(
-                source_id,
-                acl_principals=canonical.acl_principals,
-                source_version=canonical.source_version,
-                modified_at=canonical.modified_at,
-            )
-            return "permissions_updated"
-        if prior.source_version != canonical.source_version or prior.modified_at != canonical.modified_at:
-            await index.update_source_metadata(
-                source_id,
-                source_version=canonical.source_version,
-                modified_at=canonical.modified_at,
-            )
-            return "metadata_updated"
-        return "unchanged"
+    parsed = await parser.extract_in_isolated_worker(snapshot.content)
+    canonical = normalize(parsed, snapshot=snapshot)
+    processing_changed = prior is None or (
+        prior.chunking_version != canonical.chunking_version
+        or prior.embedding_version != canonical.embedding_version
+    )
+    if prior and prior.content_hash == canonical.content_hash and not processing_changed:
+        # Security metadata can change without text; refresh it independently.
+        security_changed = (
+            prior.acl_principals != canonical.acl_principals
+            or prior.classification != canonical.classification
+        )
+        await index.refresh_metadata_if_newer(
+            tenant_id, source_id, canonical=canonical,
+            source_revision=snapshot.revision,
+            expected_active_revision=expected_active_revision,
+        )
+        return "security_updated" if security_changed else "metadata_refreshed"
 
     chunks = structure_aware_chunks(canonical)
     vectors = await embedder.embed_batch([chunk.text for chunk in chunks])
-    staged = await index.stage_document(canonical, chunks, vectors)
-    await index.verify_staged_version(staged, expected_chunks=len(chunks), expected_acl=acl)
-    await index.activate_document_version(source_id, staged.version)
+    staged = await index.stage_document(tenant_id, canonical, chunks, vectors)
+    await index.verify_staged_version(staged, expected_chunks=len(chunks), expected_snapshot=snapshot)
+    # Reject out-of-order publication or a conflicting active-index revision.
+    await index.activate_if_newer(
+        tenant_id, source_id, staged.version, source_revision=snapshot.revision,
+        expected_active_revision=expected_active_revision,
+    )
     return "published"
 ```
 
-This sketch assumes the index can stage a new document version and switch its active pointer after validation. If the selected store cannot do that atomically, design an explicit visibility and rollback protocol rather than claiming atomic publication. Tombstones must also remove or suppress prior chunks, and the old version should be garbage-collected only after readers can no longer select it.
+This is pseudocode: the connector and index methods specify required contracts, not implemented SDK methods. Index records additionally need an `index_revision` and an ordered source revision (or an equivalent connector cursor/conditional-update policy); an opaque source version string alone cannot establish event order. Namespace every operation by tenant and source. Metadata refresh must update chunk/filter metadata and active-record metadata atomically or under a documented visibility protocol. Unchanged text must not skip classification/ACL changes or chunking/embedding-version rebuilds. The query-time current-policy check remains necessary during propagation.
+
+This sketch assumes the index can stage a new document version and conditionally switch its active pointer after validation. If the selected store cannot do that atomically, design an explicit visibility and rollback protocol rather than claiming atomic publication. Tombstones must also remove or suppress prior chunks, and the old version should be garbage-collected only after readers can no longer select it.
 
 ## 4. Detail the online retrieval and answer path
 
@@ -346,10 +355,12 @@ async def retrieve(query: str, auth: SecurityContext, search, source_policy, rer
     permitted = []
     for item in candidates:
         decision = decisions.get(item.source_id)
-        if decision is not None and decision.allowed and decision.version == item.source_version:
+        if decision is not None and decision.allowed and decision.content_version == item.source_version:
             permitted.append(item)
     return await reranker.rank(query, permitted[:40], limit=8)
 ```
+
+Here `decision.content_version` is an explicit source-policy response field for the content revision authorized by that decision. Keep ACL/policy revision separate; comparing an ACL revision to a content version is not a valid freshness check. The policy service must also enforce current classification and principal membership.
 
 The store's metadata filter is not the only security boundary. Validate the identity mapping, source ACL semantics, index freshness, and recheck behavior. Never fall back to unfiltered search when a tenant filter or authorization service fails.
 

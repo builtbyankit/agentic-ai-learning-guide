@@ -23,3 +23,10 @@ The larger offline lab uses [advanced_dev_scenarios.json](advanced_dev_scenarios
 The v1 holdout has been run and reviewed, so it is now a regression set. Create a fresh holdout before tuning retriever thresholds or choosing an embedding/reranker from these results.
 
 `run_rag_evals.py` compares exact cosine over the demo feature hash, BM25-style lexical ranking, and reciprocal-rank-fused hybrid search. Reports fingerprint corpus metadata/content and the query dataset. They include source coverage, Hit@1, source Recall@k, MRR, unique-source precision, no-answer accuracy, authorization-isolation rate/leak count, embedding dimension, request counts and input tokens split between document ingestion and query evaluation, and retrieved source/version/chunk provenance. Use `--manifest` to select the corpus and `--output report.json` to preserve the full report. For a real embedding experiment, configure `VOYAGE_API_KEY` and explicitly pass `--embedding-provider voyage`; the provider is intended for development-set runs and has not been called in this workspace. Check current provider pricing/data policies. Reports can contain original query text. These synthetic evaluations do not estimate production generalization.
+
+
+## Interview-upgrade datasets
+
+`workflow_challenge_scenarios.json` contains eight improvement-time regression challenges, not an independent holdout. Preserve v4–v7 when comparing the original and improved routers.
+
+`answer_quality_scenarios.json` freezes synthetic evidence, permitted source/version references, required facts, authored supported/rejected claims and expected completion/limitation. `answer_quality_good.json` and `answer_quality_bad.json` exercise the evaluator; they are candidate fixtures, not model results. Exact normalized claim labels intentionally leave unknown paraphrases pending human review. Report reviewed support with label coverage. The optional live generator receives only questions and allowed evidence, never gold claim labels. See [Lab 2](../../agentic-ai-advanced-labs.md) for independent labeling, trial review and the end-to-end extension.

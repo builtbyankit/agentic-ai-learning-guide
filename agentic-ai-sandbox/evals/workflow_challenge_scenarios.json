@@ -1,0 +1,155 @@
+{
+  "dataset_version": "workflow-challenge-v1",
+  "purpose": "Authored regression challenges, not independent holdout",
+  "scenarios": [
+    {
+      "id": "reverse-order-comparison",
+      "name": "reversed mixed ownership preserves each denial",
+      "request": "Compare ORD-200 and ORD-100 delivery status.",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "ORD-100",
+        "shipped",
+        "could not access ORD-200"
+      ],
+      "answer_must_deny": [
+        "Desk lamp",
+        "2026-10-01"
+      ],
+      "must_call_with": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_ref": "ORD-200"
+          }
+        },
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_ref": "ORD-100"
+          }
+        }
+      ],
+      "expected_tool_errors": 1
+    },
+    {
+      "id": "deduplicate-reference",
+      "name": "same reference is only read once",
+      "request": "Where is ORD-100? Compare ORD-100 with itself.",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "ORD-100",
+        "shipped"
+      ],
+      "must_call_with": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_ref": "ORD-100"
+          }
+        }
+      ]
+    },
+    {
+      "id": "multi-policy-without-order",
+      "name": "two policies without an order",
+      "request": "What is the return window and are delivery dates guaranteed?",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "RET-01",
+        "SHIP-01",
+        "30 days",
+        "not guarantees"
+      ],
+      "must_call_with": [
+        {
+          "tool": "search_policy",
+          "arguments": {
+            "topic": "refunds"
+          }
+        },
+        {
+          "tool": "search_policy",
+          "arguments": {
+            "topic": "delivery estimates"
+          }
+        }
+      ]
+    },
+    {
+      "id": "eligibility-default-read",
+      "name": "eligibility question defaults to read only",
+      "request": "Is ORD-100 eligible for a refund?",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "eligible",
+        "No request was submitted"
+      ],
+      "must_call": [
+        "check_refund_eligibility"
+      ],
+      "must_not_call": [
+        "prepare_refund_proposal",
+        "request_human_review"
+      ]
+    },
+    {
+      "id": "refund-negated",
+      "name": "negated refund does not create a proposal",
+      "request": "Do not refund ORD-100. Just tell me the order status.",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "shipped",
+        "No request was submitted"
+      ],
+      "must_not_call": [
+        "prepare_refund_proposal",
+        "request_human_review"
+      ]
+    },
+    {
+      "id": "multi-refund-clarify",
+      "name": "multiple consequential targets require clarification",
+      "request": "Please refund ORD-100 and ORD-200.",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "one order reference"
+      ],
+      "must_not_call": [
+        "prepare_refund_proposal",
+        "request_human_review"
+      ],
+      "expected_statuses": [
+        "handoff"
+      ]
+    },
+    {
+      "id": "over-budget-plan",
+      "name": "oversized read plan stops before tools",
+      "request": "Compare ORD-100 ORD-200 ORD-300 ORD-400 ORD-500.",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "narrow"
+      ],
+      "must_not_call": [
+        "get_order"
+      ],
+      "expected_statuses": [
+        "handoff"
+      ]
+    },
+    {
+      "id": "unknown-order",
+      "name": "unknown order receives indistinguishable denial",
+      "request": "Where is ORD-999?",
+      "subject_id": "customer-ada",
+      "answer_must_include": [
+        "could not access"
+      ],
+      "must_call": [
+        "get_order"
+      ],
+      "expected_tool_errors": 1
+    }
+  ]
+}

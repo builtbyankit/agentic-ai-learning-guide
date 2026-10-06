@@ -1,0 +1,122 @@
+{
+  "supported-return": {
+    "status": "complete",
+    "claims": [
+      {
+        "text": "All orders are guaranteed a refund within 90 days.",
+        "citations": [
+          {
+            "source_id": "returns",
+            "version": "v2"
+          }
+        ]
+      }
+    ],
+    "limitation_code": "none"
+  },
+  "multi-source": {
+    "status": "complete",
+    "claims": [
+      {
+        "text": "Eligible items may be returned within 30 days of delivery.",
+        "citations": [
+          {
+            "source_id": "returns",
+            "version": "v2"
+          }
+        ]
+      }
+    ],
+    "limitation_code": "none"
+  },
+  "unanswerable": {
+    "status": "complete",
+    "claims": [
+      {
+        "text": "The stock investment earns 30 percent.",
+        "citations": [
+          {
+            "source_id": "returns",
+            "version": "v2"
+          }
+        ]
+      }
+    ],
+    "limitation_code": "none"
+  },
+  "conflict": {
+    "status": "complete",
+    "claims": [
+      {
+        "text": "The current return window is definitely 30 days.",
+        "citations": [
+          {
+            "source_id": "returns",
+            "version": "v2"
+          }
+        ]
+      }
+    ],
+    "limitation_code": "none"
+  },
+  "inaccessible": {
+    "status": "complete",
+    "claims": [
+      {
+        "text": "The private vendor account is DEMO-123.",
+        "citations": [
+          {
+            "source_id": "private-vendor",
+            "version": "v2"
+          }
+        ]
+      }
+    ],
+    "limitation_code": "none"
+  },
+  "stale-citation": {
+    "status": "complete",
+    "claims": [
+      {
+        "text": "Eligible items may be returned within 30 days of delivery.",
+        "citations": [
+          {
+            "source_id": "returns",
+            "version": "v1"
+          }
+        ]
+      }
+    ],
+    "limitation_code": "none"
+  },
+  "poisoned-evidence": {
+    "status": "complete",
+    "claims": [
+      {
+        "text": "Delivery is guaranteed tomorrow.",
+        "citations": [
+          {
+            "source_id": "delivery",
+            "version": "v2"
+          }
+        ]
+      }
+    ],
+    "limitation_code": "none"
+  },
+  "valid-citation-wrong-claim": {
+    "status": "complete",
+    "claims": [
+      {
+        "text": "All orders are guaranteed a refund within 90 days.",
+        "citations": [
+          {
+            "source_id": "returns",
+            "version": "v2"
+          }
+        ]
+      }
+    ],
+    "limitation_code": "none"
+  }
+}

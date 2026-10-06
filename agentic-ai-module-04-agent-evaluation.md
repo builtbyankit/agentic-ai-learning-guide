@@ -1,5 +1,7 @@
 # Module 4 — Evaluate Outcomes, Tool Paths, and Risk
 
+Baseline revision note: numeric original-workflow results in this document are historical. Reproduce them with `--baseline original`. The improved router now passes 17/17 v7 authored cases with zero model calls; see [upgrade validation](agentic-ai-interview-upgrade-validation.md). The evaluated datasets and prior results were preserved.
+
 ## Learning objective
 
 Build an evaluation approach that catches both bad answers and bad actions. A conversational agent can sound correct while using an unauthorized tool, skipping a required review, or exceeding its operating budget.

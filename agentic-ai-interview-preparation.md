@@ -4,6 +4,10 @@ This guide is a senior-level interview companion to the [mastery roadmap](agenti
 
 The answers are models for clear reasoning, not scripts to memorize. In an interview, state assumptions, compare a simpler baseline, name the failure modes, and say what evidence would change your design. Be explicit about what you have implemented and measured versus what you have only designed.
 
+## Practice beyond the model answer
+
+Each question below has a follow-up and an expected artifact in the [interview workbook](agentic-ai-interview-workbook.md). Explain the answer in two minutes, defend a changed assumption, and show a diagram, calculation or failure trace. Use [LLM foundations](agentic-ai-llm-engineering-foundations.md) for model mechanics and [worked sizing](agentic-ai-worked-capacity-and-cost.md) for numerical system design. The [preparation plan](agentic-ai-mastery-and-interview-plan.md) supplies six-week and fourteen-day practice routes.
+
 ## A strong answer structure
 
 For an architecture or system-design question, work through this sequence:

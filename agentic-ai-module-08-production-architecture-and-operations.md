@@ -1,5 +1,7 @@
 # Module 8 — Production Architecture and Operations Plan
 
+Baseline revision note: numeric original-workflow results in this document are historical. Reproduce them with `--baseline original`. The improved router now passes 17/17 v7 authored cases with zero model calls; see [upgrade validation](agentic-ai-interview-upgrade-validation.md). The evaluated datasets and prior results were preserved.
+
 ## Learning objective
 
 Turn the bounded support-agent prototype into an architecture another team could implement and operate. Keep the model, application control plane, data services, approval process, and external side effects behind separate interfaces. Define what the design must measure before it can claim production readiness.
@@ -87,7 +89,7 @@ The approval flow may resume the same agent run for a response, but payment exec
 
 The prototype has six turns, four tool calls, an 8,000-character request cap, and bounded tool strings. Production limits should additionally include an end-to-end deadline, input/output token ceilings, per-user and per-tenant rate limits, concurrency quotas, tool-specific timeouts, and an explicit cancellation path. Record the limit that ended each run so operators can distinguish an expected handoff from a service failure.
 
-Use a fixed workflow for known, structured requests. Route to the bounded model planner only when the request is mixed or unclear enough that dynamic sequencing is useful. The fixed workflow passes the ten-case v4 suite, 12/15 cases in v5, and 13/16 in v6 with zero model calls; v6 adds a session-revocation state transition. The remaining misses include multiple orders, multiple policy topics, and out-of-scope payment details. This is a deliberate design gate: run both architectures on representative traffic before expanding model autonomy.
+Use a fixed workflow for known, structured requests. Route to the bounded model planner only when the request is mixed or unclear enough that dynamic sequencing is useful. The fixed workflow passes the ten-case v4 suite, 12/15 cases in v5, and 13/16 in v6 with zero model calls; v6 adds a session-revocation state transition. The original router missed multiple orders, multiple policy topics, and out-of-scope payment details. Those explicit branches now pass in the improved v7 baseline (17/17, zero model calls). This is a deliberate design gate: run both architectures on representative traffic before expanding model autonomy.
 
 If the model provider is unavailable, return a clear handoff or use a deterministic workflow for intents whose correctness has been established. If the tool gateway or authorization service is unavailable, fail closed. If approval is unavailable, keep the request pending and tell the user; never infer approval from a timeout.
 
@@ -95,7 +97,7 @@ If the model provider is unavailable, return a clear handoff or use a determinis
 
 ### Measure before setting service targets
 
-The live Anthropic runner records model-turn count, input/output tokens, and model-call latency. It does not yet record tool timing, end-to-end queue delay, monetary cost, or human-review delay. Add those fields before setting a production latency/cost objective.
+The live Anthropic runner records model-turn count, input/output tokens, and model-call latency. It optionally estimates model-token cost from an explicit rate card; that estimate excludes tools, infrastructure and human work. It does not yet record tool timing, end-to-end queue delay, or human-review delay. Add those measurements before accepting a production latency/cost objective. Practice numerical sizing with the [worked capacity and cost exercise](agentic-ai-worked-capacity-and-cost.md).
 
 Measure at least:
 
@@ -146,7 +148,7 @@ On-call ownership should be explicit for the model adapter, tool gateway, order/
 |---|---|---|
 | Bounded tool surface, ownership check, limited outputs | Runtime code and scripted/security checks | Demonstrated on synthetic data |
 | Anthropic/Python adapter protocol | Fake-client tool round-trip and durable transcript recovery | Adapter mechanics demonstrated; live behavior unverified |
-| Evaluation against a fixed baseline | v4 fixed workflow passes 10/10; v5 passes 12/15; v6 passes 13/16 including revocation; no live-model comparison | Incomplete for model value/quality |
+| Evaluation against a fixed baseline | Improved v7 workflow passes 17/17; original v7 passes 14/17; no live-model comparison | Incomplete for model value/quality |
 | Policy retrieval quality | 11-query synthetic retrieval eval scores 100% exact coverage | Catalog is tiny and authored; representative corpus quality is unverified |
 | Restart, retry, and local worker coordination | SQLite run journal/outbox; restart, two-thread claim race, stale fencing/state-version rejection, slow-tool heartbeat and heartbeat-loss recovery checks | Demonstrated on one local SQLite database; provider/network and multi-host behavior unverified |
 | Human approval and action binding | Exact digest, allow-list, expiry, outbox checks | Local simulation; real operator authentication missing |

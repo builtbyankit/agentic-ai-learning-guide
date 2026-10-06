@@ -1,5 +1,23 @@
 # Agentic AI sandbox: support-resolution system
 
+## Interview upgrade and current baseline
+
+The default workflow runner now uses `--baseline improved`; `--baseline original` preserves the original router and historical numeric results below. The improved router passes 17/17 v7 cases with 22 tool calls and zero model calls; eight additional authored challenges also pass. The baseline runner now exits 1 when scenario grading finds a gap, so the historical original-v7 run intentionally exits 1.
+
+```sh
+python3 run_workflow_baseline.py --baseline improved --dataset evals/live_scenarios_v7.json
+python3 run_workflow_baseline.py --baseline original --dataset evals/live_scenarios_v7.json
+python3 run_workflow_checks.py
+python3 run_answer_eval_checks.py
+python3 run_answer_evals.py
+python3 run_answer_evals.py --answers evals/answer_quality_bad.json
+```
+
+Run all twelve dependency-free suites with `python3 run_offline_checks.py`; the Pages workflow also runs this gate before building. Optional PDF, live-provider and load experiments remain separate.
+
+The bad-answer fixtures intentionally exit 1. The answer lab isolates generation using frozen synthetic evidence: claim-label support, required facts, reference/version validity, abstention and review coverage. Unknown paraphrases require human review. It is not a semantic entailment grader or a live benchmark. Optional `generate_answer_candidates.py --live --output /tmp/answer-trial-1.json` sends allowed evidence without evaluation labels and makes paid API calls only after explicit configuration. See [advanced labs](../agentic-ai-advanced-labs.md), [the preparation plan](../agentic-ai-mastery-and-interview-plan.md), and [upgrade validation](../agentic-ai-interview-upgrade-validation.md).
+
+
 This is the hands-on build for the mastery roadmap. The deterministic harness uses Python’s standard library and synthetic data. A live Anthropic adapter is included separately.
 
 ## Run the evaluation scenarios

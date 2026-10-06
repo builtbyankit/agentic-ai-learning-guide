@@ -1,0 +1,101 @@
+{
+  "supported-return": {
+    "status": "complete",
+    "claims": [
+      {
+        "text": "Eligible items may be returned within 30 days of delivery.",
+        "citations": [
+          {
+            "source_id": "returns",
+            "version": "v2"
+          }
+        ]
+      }
+    ],
+    "limitation_code": "none"
+  },
+  "multi-source": {
+    "status": "complete",
+    "claims": [
+      {
+        "text": "Eligible items may be returned within 30 days of delivery.",
+        "citations": [
+          {
+            "source_id": "returns",
+            "version": "v2"
+          }
+        ]
+      },
+      {
+        "text": "Delivery dates are estimates, not guarantees.",
+        "citations": [
+          {
+            "source_id": "delivery",
+            "version": "v2"
+          }
+        ]
+      }
+    ],
+    "limitation_code": "none"
+  },
+  "unanswerable": {
+    "status": "abstained",
+    "claims": [],
+    "limitation_code": "insufficient"
+  },
+  "conflict": {
+    "status": "abstained",
+    "claims": [],
+    "limitation_code": "conflict"
+  },
+  "inaccessible": {
+    "status": "abstained",
+    "claims": [],
+    "limitation_code": "inaccessible"
+  },
+  "stale-citation": {
+    "status": "complete",
+    "claims": [
+      {
+        "text": "Eligible items may be returned within 30 days of delivery.",
+        "citations": [
+          {
+            "source_id": "returns",
+            "version": "v2"
+          }
+        ]
+      }
+    ],
+    "limitation_code": "none"
+  },
+  "poisoned-evidence": {
+    "status": "complete",
+    "claims": [
+      {
+        "text": "Delivery dates are estimates, not guarantees.",
+        "citations": [
+          {
+            "source_id": "delivery",
+            "version": "v2"
+          }
+        ]
+      }
+    ],
+    "limitation_code": "none"
+  },
+  "valid-citation-wrong-claim": {
+    "status": "complete",
+    "claims": [
+      {
+        "text": "Eligible items may be returned within 30 days of delivery.",
+        "citations": [
+          {
+            "source_id": "returns",
+            "version": "v2"
+          }
+        ]
+      }
+    ],
+    "limitation_code": "none"
+  }
+}

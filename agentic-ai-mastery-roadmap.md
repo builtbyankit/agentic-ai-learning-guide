@@ -6,6 +6,12 @@ Become able to take a real problem from requirements to a reliable agentic syste
 
 The central design rule throughout this roadmap is: **use the least autonomous architecture that reliably meets the requirement**. A fixed workflow is often better for a predictable task; a model-directed agent is useful when the steps genuinely depend on what it discovers. Add complexity only when evaluation shows a benefit.
 
+## Expanded learning and interview route
+
+Start with the [mastery/interview plan](agentic-ai-mastery-and-interview-plan.md), take a diagnostic mock, and choose a track. Complete [LLM foundations](agentic-ai-llm-engineering-foundations.md) before the live adapter; use the [workbook](agentic-ai-interview-workbook.md), [numerical capacity example](agentic-ai-worked-capacity-and-cost.md), and [advanced labs](agentic-ai-advanced-labs.md) alongside the modules.
+
+The improved workflow now passes 17/17 existing v7 cases with 22 tool calls and zero model calls, plus eight authored challenge regressions. Original-router results below remain historical comparisons and can be reproduced with `--baseline original`. Neither suite is an independent production holdout. The new answer-quality lab separates reference validity, labeled claim support, coverage, abstention, and human-review requirements; fixture checks do not establish live-model quality. See [upgrade validation](agentic-ai-interview-upgrade-validation.md).
+
 ## Course progress
 
 - **Module 1 — system boundaries:** Worked design for a bounded support-resolution assistant is available in [Module 1](agentic-ai-module-01-system-boundaries.md).
@@ -55,7 +61,7 @@ Work through the modules in order. Each module ends with an artifact or demonstr
 
 This track is for engineers who need to own a system across model behavior, APIs, data, reliability, security, and operations. A successful prompt demo is not mastery. For every design decision, name the assumption, failure mode, deterministic control, evaluation evidence, operational signal, and owner.
 
-The sequence is Modules 1–8 for foundations, Module 9 for orchestration, Module 10 for context and memory, Module 11 for unstructured data/RAG/optimization, and Module 12 for the architecture practicum. The final artifact is a reviewable dossier with a launch-stage recommendation. See [Module 12 — Senior AI Engineer and Architect Practicum](agentic-ai-module-12-senior-architecture-practicum.md).
+The sequence starts with the LLM engineering companion, then Modules 1–8 for application foundations, Module 9 for orchestration, Module 10 for context and memory, Module 11 for unstructured data/RAG/optimization, and Module 12 for the architecture practicum. The final artifact is a reviewable dossier with a launch-stage recommendation. See [Module 12 — Senior AI Engineer and Architect Practicum](agentic-ai-module-12-senior-architecture-practicum.md).
 
 | Area | Design artifact | Evidence artifact |
 |---|---|---|

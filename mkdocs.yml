@@ -41,7 +41,14 @@ nav:
       - Module 10 — Context, Retrieval, and Memory: agentic-ai-module-10-context-retrieval-and-memory.md
       - Module 11 — Unstructured Data, RAG, and Optimization: agentic-ai-module-11-data-rag-and-optimization.md
       - Module 12 — Senior Architecture Practicum: agentic-ai-module-12-senior-architecture-practicum.md
-  - Interview Preparation: agentic-ai-interview-preparation.md
+  - Interview and Mastery:
+      - Preparation Plan: agentic-ai-mastery-and-interview-plan.md
+      - Core Questions: agentic-ai-interview-preparation.md
+      - Interview Workbook: agentic-ai-interview-workbook.md
+      - LLM Engineering Foundations: agentic-ai-llm-engineering-foundations.md
+      - Worked Capacity and Cost: agentic-ai-worked-capacity-and-cost.md
+      - Advanced Labs: agentic-ai-advanced-labs.md
+      - Upgrade Validation: agentic-ai-interview-upgrade-validation.md
   - Worked Project Example: agentic-ai-project-example-harper.md
   - Sandbox:
       - Guide: agentic-ai-sandbox/README.md

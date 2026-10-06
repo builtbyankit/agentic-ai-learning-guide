@@ -150,6 +150,9 @@ Useful modern retrieval experiments include query rewriting for ambiguous user l
 
 ## 5. Evaluate the retrieval system separately
 
+The sandbox now also has a [frozen-evidence answer-quality lab](agentic-ai-advanced-labs.md) with good/bad answer fixtures, exact authored claim labels, citation/version checks, completeness and abstention. Unlabeled paraphrases require review. This measures grader mechanics independently of retrieval; it does not establish end-to-end RAG quality. Follow Lab 2 to connect actual authorized retrieval packets and reviewed generation outputs without leaking gold labels into generation.
+
+
 Use human-checked query → relevant source/chunk labels. Keep training/tuning queries separate from a holdout set and include paraphrases, exact identifiers, multilingual inputs if needed, no-answer cases, stale versions, conflicting documents, cross-tenant attempts, and injection-bearing content.
 
 | Question | Example metric or review |

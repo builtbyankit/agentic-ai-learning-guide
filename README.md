@@ -6,6 +6,14 @@ The lessons, runnable exercises, synthetic datasets, and evaluation reports live
 
 ## Start here
 
+For interview preparation, start with the [mastery and interview plan](agentic-ai-mastery-and-interview-plan.md). Take a diagnostic mock, build evidence, and use the role-specific gates.
+
+- [LLM engineering foundations](agentic-ai-llm-engineering-foundations.md): tokens, attention, decoding, embeddings/reranking, indexes, adaptation, inference, and MCP.
+- [Interview workbook](agentic-ai-interview-workbook.md): follow-ups for all 35 questions, four timed mocks, scoring, coding/debugging, and personal project narratives.
+- [Worked capacity and cost design](agentic-ai-worked-capacity-and-cost.md): numerical sizing, quotas, latency, cost, and review capacity with explicitly hypothetical inputs.
+- [Advanced labs](agentic-ai-advanced-labs.md): stronger baseline, answer support, retrieval/abstention, index lifecycle, fault recovery, orchestration, load, and adaptation experiments.
+
+
 1. Read the [mastery roadmap](agentic-ai-mastery-roadmap.md) to understand the sequence and expected outcomes.
 2. Work through the [12-module curriculum](#curriculum), in order or by topic.
 3. Run the [Python sandbox](agentic-ai-sandbox/README.md) alongside the lessons. Its deterministic exercises use Python's standard library.
@@ -32,7 +40,7 @@ The support-agent sandbox uses synthetic data. Offline checks do not establish p
 
 ## Interview preparation
 
-Use the [Agentic AI Interview Preparation guide](agentic-ai-interview-preparation.md) for senior-level questions and model answers on architecture, tools, durability, orchestration, unstructured data and RAG, security, evaluation, optimization, and system-design scenarios.
+Pair the [interview workbook](agentic-ai-interview-workbook.md) with the model answers. Use the [Agentic AI Interview Preparation guide](agentic-ai-interview-preparation.md) for senior-level questions and model answers on architecture, tools, durability, orchestration, unstructured data and RAG, security, evaluation, optimization, and system-design scenarios.
 
 The [Harper worked project example](agentic-ai-project-example-harper.md) shows a complete enterprise knowledge and code assistant design, from problem framing and high-level architecture through ingestion, ACL-aware retrieval, typed orchestration, code sketches, evaluation, and rollout. It separates the attached notes' resume-backed scope from proposed implementation choices that need verification.
 
@@ -43,6 +51,8 @@ From the repository root:
 ```bash
 cd agentic-ai-sandbox
 python3 run_evals.py
+python3 run_workflow_checks.py
+python3 run_answer_eval_checks.py
 python3 run_retrieval_checks.py
 python3 run_rag_checks.py
 ```

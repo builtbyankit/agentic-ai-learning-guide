@@ -148,10 +148,83 @@ class FixedWorkflowPlanner:
         )
 
 
+
+class ImprovedWorkflowPlanner(FixedWorkflowPlanner):
+    """Bounded explicit branches; no scenario IDs or model calls in routing."""
+
+    def __init__(self, request: str):
+        super().__init__(request)
+        lowered = request.lower()
+        self.order_refs = list(dict.fromkeys(ref.upper() for ref in ORDER_PATTERN.findall(request)))
+        self.unsupported_payment = any(term in lowered for term in (
+            "ledger", "card charges", "payment charges", "settled", "pending charge",
+        ))
+        self.policy_topics = []
+        if any(term in lowered for term in ("damaged", "damage", "broken", "defective", "crushed")):
+            self.policy_topics.append("damaged item")
+        if any(term in lowered for term in ("guaranteed", "guarantee", "delivery dates", "delivery estimate", "tracking", "shipping delay")):
+            self.policy_topics.append("delivery estimates")
+        if any(term in lowered for term in ("return window", "return policy", "send it back", "returns policy")):
+            self.policy_topics.append("refunds")
+        if self.wants_policy and not self.policy_topics:
+            self.policy_topics.append(self.policy_topic)
+        self.eligibility_only = "refund" in lowered and any(term in lowered for term in (
+            "eligible", "eligibility", "qualify", "qualification",
+        ))
+        self.no_mutation = any(term in lowered for term in (
+            "do not refund", "don't refund", "do not submit", "don't submit", "do not send",
+            "don't send", "no request yet", "not for review", "no review", "do not create", "don't create",
+        ))
+        self.refund_route = self.mode == "refund" and not self.eligibility_only and not self.no_mutation
+        self.read_plan = []
+        for ref in self.order_refs:
+            tool = "check_refund_eligibility" if self.eligibility_only else "get_order"
+            self.read_plan.append((tool, {"order_ref": ref}))
+        if not self.unsupported_payment:
+            self.read_plan.extend(("search_policy", {"topic": topic}) for topic in self.policy_topics)
+
+    def next_action(self, user_request: str, observations: list[dict[str, object]]) -> Decision:
+        if self.refund_route:
+            if len(self.order_refs) != 1:
+                return Decision.handoff("Please choose one order reference for this refund request.")
+            return self._refund_action(observations)
+        if len(self.read_plan) > 4:
+            return Decision.handoff("Please narrow this request to at most four lookups; support can help.")
+        if not self.read_plan and not self.unsupported_payment:
+            return Decision.handoff("Please share your order reference or a supported policy question.")
+        if len(observations) < len(self.read_plan):
+            tool, arguments = self.read_plan[len(observations)]
+            return Decision.call(tool, arguments)
+        parts = []
+        for (tool, arguments), observation in zip(self.read_plan, observations):
+            if not observation["ok"]:
+                target = arguments.get("order_ref", "that policy")
+                parts.append(f"I could not access {target}. Support can help.")
+                continue
+            result = observation["result"]
+            if tool == "get_order":
+                parts.append(f"{result['order_ref']} is {result['status']}, with estimated delivery on {result['estimated_delivery']}. Items: {result['items']}.")
+            elif tool == "check_refund_eligibility":
+                eligible = "eligible" if result["eligible"] else "not eligible"
+                parts.append(f"{arguments['order_ref']} is {eligible} for a refund. No request was submitted for review.")
+            else:
+                matches = result.get("matches", [])
+                if matches:
+                    parts.extend(f"{article['text']} ({article['article_id']})." for article in matches)
+                else:
+                    parts.append("I could not find an approved policy for that question.")
+        if self.unsupported_payment:
+            parts.append("I do not have access to payment ledger; I cannot verify whether card charges are settled or pending.")
+        if self.no_mutation and not self.eligibility_only:
+            parts.append("No request was submitted for review.")
+        return Decision.answer(" ".join(parts))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", default="evals/live_scenarios.json", help="Versioned scenario JSON path")
     parser.add_argument("--output", help="Optional JSON report path")
+    parser.add_argument("--baseline", choices=("original", "improved"), default="improved", help="Improved bounded router by default; original preserves historical comparisons")
     args = parser.parse_args()
     dataset_version, scenarios = load_dataset(args.dataset)
     dataset_path = resolve_dataset_path(args.dataset)
@@ -163,7 +236,7 @@ def main() -> int:
         result = AgentLoop(runtime, max_turns=6, max_tool_calls=4).run(
             scenario.request,
             RunContext(subject_id=scenario.subject_id, task_id=f"workflow-{scenario.scenario_id}"),
-            FixedWorkflowPlanner(scenario.request),
+            (ImprovedWorkflowPlanner if args.baseline == "improved" else FixedWorkflowPlanner)(scenario.request),
         )
         failures, report = grade_result(scenario, result, runtime, f"workflow-{scenario.scenario_id}")
         report["task_id"] = f"workflow-{scenario.scenario_id}"
@@ -177,7 +250,7 @@ def main() -> int:
             print(f"PASS  {scenario.name}")
         print(f"      tools={len(result.tool_trace)} workflow_steps={result.turns}; answer={result.answer}")
     print(
-        f"\nFixed workflow on {dataset_version}: {passed}/{len(scenarios)} cases passed; "
+        f"\nFixed workflow ({args.baseline}) on {dataset_version}: {passed}/{len(scenarios)} cases passed; "
         f"{tool_calls} total tool calls; 0 model calls."
     )
     print(f"Dataset SHA-256: {dataset_sha256(args.dataset)}")
@@ -188,7 +261,7 @@ def main() -> int:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps({
-            "architecture": "fixed-workflow",
+            "architecture": f"fixed-workflow-{args.baseline}",
             "dataset_version": dataset_version,
             "dataset_path": str(dataset_path),
             "dataset_sha256": dataset_sha256(args.dataset),
@@ -200,7 +273,7 @@ def main() -> int:
             "scenarios": reports,
         }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(f"Saved report to {output_path}")
-    return 0
+    return 0 if passed == len(scenarios) else 1
 
 
 if __name__ == "__main__":

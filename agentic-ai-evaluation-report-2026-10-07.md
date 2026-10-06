@@ -1,5 +1,7 @@
 # Offline System Evaluation — 2026-10-07
 
+Baseline revision note: numeric original-workflow results in this document are historical. Reproduce them with `--baseline original`. The improved router now passes 17/17 v7 authored cases with zero model calls; see [upgrade validation](agentic-ai-interview-upgrade-validation.md). The evaluated datasets and prior results were preserved.
+
 ## Decision summary
 
 The current sandbox demonstrates useful control and data-path mechanics under synthetic, offline conditions. The deterministic harness, approval/outbox simulation, security boundaries, and local retrieval contracts pass their authored checks. The fixed workflow passes all ten v4 support cases without model calls; the expanded v7 suite passes 14/17 without model calls.
@@ -121,7 +123,7 @@ The live evaluator now reports two-sided 95% Wilson score intervals for each sce
 3. **Add calibrated abstention:** set thresholds on a development set; report false answer vs abstention trade-offs on holdout. Keep access control separate from relevance scoring.
 4. **Run the support-agent comparison:** configure an account-enabled Anthropic model and a current local rate card outside the repository, then run `python3 run_live_evals.py --dataset evals/live_scenarios_v7.json --rate-card ~/.config/agentic-ai/rate-card.json --trials 3 --output live-v7.json`. Review failures, complete tool traces, token costs, and costs per successful trial beside the fixed-workflow results. Then add incomplete-tool-response cases and preserve a fresh holdout before tuning.
 5. **Only then test live prompt caching:** repeat a fixed case order, compare disabled/enabled requests and cache metrics, price the cache writes/reads from the active rate card, and include full task quality and latency.
-6. **Harden distributed execution:** add heartbeat supervision and fault-injection for slow calls, duplicate queue delivery, schema rollout, cancellation, restore, and downstream reconciliation before scaling beyond the local SQLite journal.
+6. **Harden distributed execution:** extend the existing heartbeat supervision with provider/network fault-injection, duplicate queue delivery, schema rollout, cancellation, restore, and downstream reconciliation before scaling beyond the local SQLite journal.
 
 ## Reproduction commands
 
@@ -147,10 +149,10 @@ python3 run_rag_evals.py --manifest knowledge/advanced/manifest.json --dataset e
 python3 run_rag_evals.py --manifest knowledge/advanced/manifest.json --dataset evals/advanced_holdout_scenarios.json --retriever lexical
 python3 run_rag_evals.py --manifest knowledge/advanced/manifest.json --dataset evals/advanced_holdout_scenarios.json --retriever hybrid
 python3 run_eval_runner_checks.py
-python3 run_workflow_baseline.py --dataset evals/live_scenarios.json
-python3 run_workflow_baseline.py --dataset evals/live_scenarios_v5.json
-python3 run_workflow_baseline.py --dataset evals/live_scenarios_v6.json
-python3 run_workflow_baseline.py --dataset evals/live_scenarios_v7.json
+python3 run_workflow_baseline.py --baseline original --dataset evals/live_scenarios.json
+python3 run_workflow_baseline.py --baseline original --dataset evals/live_scenarios_v5.json
+python3 run_workflow_baseline.py --baseline original --dataset evals/live_scenarios_v6.json
+python3 run_workflow_baseline.py --baseline original --dataset evals/live_scenarios_v7.json
 ```
 
 The live model evaluator was not run because credentials/model configuration were absent. See the [sandbox README](agentic-ai-sandbox/README.md) for its live-run requirements and limitations.

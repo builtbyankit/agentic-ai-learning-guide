@@ -103,7 +103,7 @@ Mark each model call, tool, state write, trust boundary, and approval gate. Pred
 
 ## Checkpoint on this capstone
 
-For the current support assistant, adding an order specialist and a policy specialist is not yet justified: they would access simple services with the same user scope. The v5/v6 workflow misses a request that needs two policy lookups and a separate comparison across two orders, but a bounded workflow can be extended to handle both. The next experiment is to run the live single-agent evaluator against v6 and see whether it handles the broader request surface reliably enough to justify model judgment and its added cost before adding specialists.
+For the current support assistant, adding an order specialist and a policy specialist is not yet justified: they would access simple services with the same user scope. The v5/v6 workflow misses a request that needs two policy lookups and a separate comparison across two orders, but a bounded workflow can be extended to handle both. The improved workflow now passes all 17 authored v7 cases without model calls. Compare the live single-agent evaluator against this stronger baseline and a new independently labeled challenge set before claiming value from dynamic planning or adding specialists. Original-router v5/v6 misses above are historical evidence, not the current baseline.
 
 ## Senior engineering extension: delegation as capability attenuation
 
