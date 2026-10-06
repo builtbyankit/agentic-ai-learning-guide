@@ -6,6 +6,8 @@ Build the data path that gives an agent reliable evidence: ingest unstructured s
 
 Use this module with [Module 10](agentic-ai-module-10-context-retrieval-and-memory.md). Module 10's small policy catalog is the deliberately simple baseline; this module adds a data pipeline for larger and less structured corpora.
 
+The executable lab currently supports Markdown/plain-text sources and static `.html`/`.htm` extraction with headings, lists, image alt text, and table rows. It strips common script/style/navigation/footer elements but does not render JavaScript, OCR scans, parse Office formats, or guarantee removal of site-specific boilerplate. Those need source-specific extractors and their own quality fixtures; do not treat a generic HTML parser as a universal document parser.
+
 ## The knowledge pipeline
 
 ```mermaid
@@ -76,7 +78,9 @@ Practical rules:
 
 The embedding model and vector store are separate parts of the system. Keep an `Embedder` interface so you can compare providers or models without changing ingestion, authorization, or agent code. Anthropic's documentation currently says Anthropic does not offer its own embedding model and demonstrates a separate embeddings provider; evaluate model quality, language/domain coverage, latency, privacy, and cost for the actual corpus. See [Anthropic's embeddings guide](https://platform.claude.com/docs/en/build-with-claude/embeddings).
 
-The sandbox includes an optional standard-library HTTP adapter for Voyage. It sends document and query inputs with distinct `input_type` values, batches changed chunks before the SQLite write transaction, restores response order from provider indices, checks dimensions and finite values, and records request/input-token counts. The default path remains local feature hashing. See the provider's [text embeddings API](https://docs.voyageai.com/reference/embeddings-api-1) for request and model details. To run an actual semantic comparison, set `VOYAGE_API_KEY` in the environment and opt in explicitly:
+Choose by measured workload rather than model name alone. Anthropic's current provider guide describes `voyage-4-large` for highest general retrieval quality, `voyage-4` as a quality/efficiency balance, `voyage-4-lite` for lower latency/cost, `voyage-code-4` for code, and `voyage-context-4` for contextualized chunk embeddings; it also lists a multimodal option for text, images, and video. Compare query classes, languages, latency, and cost on your own data. The normal text adapter here uses `voyage-4` with `input_type="document"` and `input_type="query"`. The provider currently supports configurable output dimensions for several models; dimension is part of the index contract, so record model and dimension and rebuild a separate index when either changes. See [the current model/API guide](https://platform.claude.com/docs/en/build-with-claude/embeddings).
+
+The sandbox includes an optional standard-library HTTP adapter for Voyage. It sends document and query inputs with distinct `input_type` values, batches changed chunks before the SQLite write transaction, restores response order from provider indices, checks dimensions and finite values, and records document/query request and input-token counts separately. The adapter caps a request at 64 texts; the lab's 90-word chunks keep its requests small, but this is not a provider tokenizer or a general token-budget guarantee. Production ingestion should enforce per-input and per-request token budgets using the selected model's tokenizer. The default path remains local feature hashing. See the provider's [text embeddings API](https://docs.voyageai.com/reference/embeddings-api-1) for request and model details. To run an actual semantic comparison, set `VOYAGE_API_KEY` in the environment and opt in explicitly:
 
 ```sh
 export VOYAGE_API_KEY="your-key"
@@ -85,7 +89,7 @@ python3 run_rag_evals.py --manifest knowledge/advanced/manifest.json \
   --embedding-provider voyage --embedding-model voyage-4 --output voyage-dev.json
 ```
 
-Then evaluate the chosen configuration on a holdout only after model/chunking decisions are set. `voyage-4` is the adapter default; verify model availability, endpoint, data terms, and current pricing with the provider. `VOYAGE_API_URL` or `--embedding-endpoint` can select a compatible regional endpoint. The adapter makes real billable requests only with the explicit `--embedding-provider voyage` flag, does not retry automatically, and never writes the API key to a report. Do not commit keys or reports containing sensitive queries. No live Voyage call has been made in this workspace, so existing retrieval metrics remain feature-hashing/lexical baselines.
+Then evaluate the chosen configuration on a holdout only after model/chunking decisions are set. `voyage-4` is the adapter default; verify model availability, endpoint, data terms, and current pricing with the provider. The default endpoint is Voyage's native API; when using a MongoDB Atlas model API key, set `VOYAGE_API_URL=https://ai.mongodb.com/v1/embeddings` or pass `--embedding-endpoint` (use region-specific endpoint guidance when applicable). The adapter makes real billable requests only with the explicit `--embedding-provider voyage` flag, does not retry automatically, and never writes the API key to a report. Do not commit keys or reports containing sensitive queries. No live Voyage call has been made in this workspace, so existing retrieval metrics remain feature-hashing/lexical baselines.
 
 Store each vector with filterable metadata, not as a detached float array. Common fields are `tenant_id`, access groups, classification, source ID, version, effective date, status, content hash, section/page, embedding model ID, and vector. Apply tenant/access/version filters inside the retrieval boundary before evidence is returned. Do not ask the model to enforce access control after retrieval.
 
@@ -161,7 +165,7 @@ Inspect the retrieved chunks and complete agent trace, not only the final respon
 
 ## Hands-on: local ingestion and vector query
 
-The [sandbox lab](agentic-ai-sandbox/README.md) includes `knowledge/` Markdown sources, a manifest, a preprocessing/chunking pipeline, a SQLite vector store, and an offline feature-hashing embedder.
+The [sandbox lab](agentic-ai-sandbox/README.md) includes `knowledge/` Markdown sources, a manifest, a preprocessing/chunking pipeline, a SQLite vector store, and an offline feature-hashing embedder. The manifest loader also accepts static HTML files and preserves basic heading/table structure.
 
 ```sh
 cd agentic-ai-sandbox
@@ -169,6 +173,7 @@ python3 run_rag_demo.py
 python3 run_rag_demo.py --query "Are delivery dates promised?" --top-k 2
 python3 run_rag_demo.py --tenant another-tenant
 python3 run_rag_checks.py
+python3 run_embedding_checks.py
 python3 run_rag_evals.py --retriever dense
 python3 run_rag_evals.py --retriever lexical
 python3 run_rag_evals.py --retriever hybrid
@@ -185,7 +190,9 @@ On `rag-retrieval-holdout-v2` (ten synthetic queries, two short policy documents
 
 To make retrieval review more representative, the sandbox now also includes 15 manifest entries over multiple support topics, one superseded policy version, three classifications, and two tenants. The advanced development and holdout sets each have 20 queries. They cover paraphrase, multi-source retrieval, current-version requirements, hard negatives, no-answer behavior, and access-scope checks. `run_rag_evals.py --manifest knowledge/advanced/manifest.json` selects this corpus. The evaluator grades expected source versions and records forbidden-source leakage separately from relevance false positives.
 
-On `agentic-rag-advanced-holdout-v1`, the measured dense / lexical / hybrid results were:
+On the `agentic-rag-advanced-dev-v1` tuning split, dense / lexical / hybrid produced scenario pass rates 65% / 90% / 90%, positive-source coverage 67% / 93% / 100%, Hit@1 40% / 80% / 67%, and no-answer accuracy 0% / 50% / 0%. Lexical misses the damaged-in-transit case and returns a result for the investment hard negative. Hybrid retrieves all required positive sources but does not abstain on negative cases. Tune on this development set, preserve the current holdout as regression, and create a new holdout before making model or threshold claims.
+
+The separate `agentic-rag-advanced-holdout-v1` comparison is:
 
 | Metric | Dense feature hash | BM25-style lexical | Hybrid RRF |
 |---|---:|---:|---:|

@@ -52,6 +52,10 @@ class VoyageEmbedder:
         self._opener = opener or urlopen
         self.request_count = 0
         self.input_tokens = 0
+        self.document_request_count = 0
+        self.query_request_count = 0
+        self.document_input_tokens = 0
+        self.query_input_tokens = 0
         self.embedding_dimensions: int | None = None
 
     def embed(self, text: str) -> list[float]:
@@ -125,6 +129,8 @@ class VoyageEmbedder:
             embedding = item.get("embedding")
             if index < 0 or index >= len(texts) or index in indexed or not isinstance(embedding, list):
                 raise RuntimeError("Voyage embedding response contains malformed vectors.")
+            if any(type(value) not in (int, float) for value in embedding):
+                raise RuntimeError("Voyage embedding response contains a non-numeric vector.")
             try:
                 vector = [float(value) for value in embedding]
             except (TypeError, ValueError, OverflowError):
@@ -143,5 +149,13 @@ class VoyageEmbedder:
             token_count = usage.get("total_tokens", usage.get("input_tokens", 0))
             if type(token_count) is int and token_count >= 0:
                 self.input_tokens += token_count
+                if input_type == "document":
+                    self.document_input_tokens += token_count
+                else:
+                    self.query_input_tokens += token_count
         self.request_count += 1
+        if input_type == "document":
+            self.document_request_count += 1
+        else:
+            self.query_request_count += 1
         return [indexed[index] for index in range(len(texts))]

@@ -1,4 +1,4 @@
-"""Ingest a tiny Markdown corpus and query its local SQLite vector store."""
+"""Ingest a tiny Markdown/HTML corpus and query its local SQLite vector store."""
 
 from __future__ import annotations
 

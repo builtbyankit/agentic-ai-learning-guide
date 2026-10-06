@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from rag_pipeline import (
     Document,
     HashingEmbedder,
     SQLiteVectorStore,
+    chunk_sections,
     load_manifest_documents,
     normalize_text,
     parse_markdown_sections,
@@ -46,6 +48,57 @@ def main() -> int:
     print("PASS  heading paths, bounded overlapping chunks, and stable per-chunk identities")
 
     with tempfile.TemporaryDirectory() as temporary:
+        html_path = Path(temporary) / "policy.html"
+        html_path.write_text(
+            """<!doctype html><html><head><script>ignore_script_marker</script></head><body>
+            <nav>ignore_navigation_marker</nav><main><h1>Returns</h1><h2>Eligibility</h2>
+            <p>Unused items may be returned within 30 days.</p>
+            <table><thead><tr><th>Item</th><th>Window</th></tr></thead>
+            <tbody><tr><td>Unopened</td><td>30 days</td></tr></tbody></table>
+            <footer>ignore_footer_marker</footer></main></body></html>""",
+            encoding="utf-8",
+        )
+        html_manifest = Path(temporary) / "html-manifest.json"
+        html_manifest.write_text(
+            json.dumps(
+                [
+                    {
+                        "source_id": "html-policy",
+                        "path": "policy.html",
+                        "tenant_id": "tenant-a",
+                        "version": "v1",
+                        "effective_date": "2026-01-01",
+                        "status": "active",
+                        "classification": "internal",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        html_document = load_manifest_documents(html_manifest)[0]
+        assert "# Returns" in html_document.text and "## Eligibility" in html_document.text
+        html_sections = parse_markdown_sections(html_document.text)
+        assert html_sections[0].path == "Returns > Eligibility"
+        assert "| Item | Window |" in html_document.text
+        assert "| Unopened | 30 days |" in html_document.text
+        assert all(
+            marker not in html_document.text
+            for marker in ("ignore_script_marker", "ignore_navigation_marker", "ignore_footer_marker")
+        )
+        table_chunks = chunk_sections(html_sections, max_words=16, overlap_words=2)
+        table_chunk = next(chunk for _, chunk in table_chunks if "| Unopened" in chunk)
+        assert "| Item | Window |" in table_chunk and "| --- | --- |" in table_chunk
+        assert len(table_chunk.split()) <= 16
+        oversized_table = parse_markdown_sections(
+            "# Data\n| Field | Value |\n| --- | --- |\n| This row is too long for the configured chunk budget |"
+        )
+        try:
+            chunk_sections(oversized_table, max_words=10, overlap_words=1)
+            raise AssertionError("oversized table rows must not be split silently")
+        except ValueError as error:
+            assert "table row exceeds" in str(error)
+        print("PASS  static HTML ingestion keeps heading/table structure and removes known boilerplate")
+
         db_path = Path(temporary) / "rag-checks.sqlite"
         embedder = HashingEmbedder()
         store = SQLiteVectorStore(db_path, embedder)

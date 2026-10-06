@@ -8,6 +8,7 @@ for production relevance claims.
 from __future__ import annotations
 
 import hashlib
+from html.parser import HTMLParser
 import json
 import math
 import re
@@ -29,6 +30,13 @@ _STATUSES = {"active", "superseded", "draft"}
 _STOP_WORDS = {
     "a", "an", "and", "are", "as", "at", "be", "can", "do", "for", "from", "how", "i", "in",
     "is", "it", "me", "of", "on", "or", "the", "to", "was", "what", "when", "where", "who", "with",
+}
+_HTML_IGNORED = {"script", "style", "nav", "footer", "noscript", "svg", "iframe", "template"}
+_HTML_VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+_HTML_BLOCKS = {
+    "article", "blockquote", "dd", "div", "dl", "dt", "figcaption", "figure", "h1", "h2", "h3",
+    "h4", "h5", "h6", "li", "main", "ol", "p", "pre", "section", "table", "tbody", "td", "th",
+    "thead", "tr", "ul",
 }
 
 
@@ -116,6 +124,100 @@ class HashingEmbedder:
         return [self.embed(text) for text in texts]
 
 
+class _StaticHTMLExtractor(HTMLParser):
+    """Convert static HTML to text while retaining headings, lists, and table rows."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.ignored_stack: list[str] = []
+        self.in_table_cell = False
+        self.in_table_row = False
+        self.row_cells = 0
+        self.row_is_header = False
+
+    def _newline(self) -> None:
+        if self.in_table_cell:
+            if self.parts and not self.parts[-1].endswith((" ", "\n")):
+                self.parts.append(" ")
+            return
+        if self.parts and not self.parts[-1].endswith("\n"):
+            self.parts.append("\n")
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if self.ignored_stack:
+            if tag not in _HTML_VOID:
+                self.ignored_stack.append(tag)
+            return
+        if tag in _HTML_IGNORED:
+            if tag not in _HTML_VOID:
+                self.ignored_stack.append(tag)
+            return
+        if tag in _HTML_BLOCKS and not (tag in {"td", "th"} and self.in_table_row):
+            self._newline()
+        if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            self.parts.append("#" * int(tag[1]) + " ")
+        elif tag == "li":
+            self.parts.append("- ")
+        elif tag == "tr":
+            self._newline()
+            self.parts.append("| ")
+            self.in_table_row = True
+            self.row_cells = 0
+            self.row_is_header = False
+        elif tag in {"td", "th"} and self.in_table_row:
+            if self.row_cells:
+                self.parts.append(" | ")
+            self.in_table_cell = True
+            self.row_cells += 1
+            if tag == "th":
+                self.row_is_header = True
+        elif tag == "br":
+            self._newline()
+        elif tag == "img":
+            alt = next((value for key, value in attrs if key.lower() == "alt"), None)
+            if alt and alt.strip():
+                self.parts.append(f"[Image: {alt.strip()}]")
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if self.ignored_stack:
+            if tag in self.ignored_stack:
+                index = len(self.ignored_stack) - 1 - self.ignored_stack[::-1].index(tag)
+                del self.ignored_stack[index:]
+            return
+        if tag in {"td", "th"}:
+            self.in_table_cell = False
+        elif tag == "tr" and self.in_table_row:
+            self.parts.append(" |")
+            self._newline()
+            if self.row_is_header:
+                self.parts.append("| " + " | ".join("---" for _ in range(self.row_cells)) + " |")
+                self._newline()
+            self.in_table_row = False
+            self.row_is_header = False
+        elif tag in _HTML_BLOCKS:
+            self._newline()
+
+    def handle_data(self, data: str) -> None:
+        if not self.ignored_stack:
+            text = data.replace("|", r"\|") if self.in_table_cell else data
+            self.parts.append(text)
+
+
+def html_to_markdown(text: str) -> str:
+    """Extract static HTML as normalized text with basic semantic structure.
+
+    This does not execute JavaScript, perform OCR, or identify page-specific
+    boilerplate. Use a source-specific parser for rendered or layout-heavy data.
+    """
+    parser = _StaticHTMLExtractor()
+    parser.feed(text)
+    parser.close()
+    return normalize_text("".join(parser.parts))
+
+
 def normalize_text(text: str, *, redact_basic_pii: bool = False) -> str:
     """Normalize common text noise while preserving paragraph and line boundaries."""
     value = unicodedata.normalize("NFKC", text).replace("\r\n", "\n").replace("\r", "\n")
@@ -162,25 +264,83 @@ def chunk_sections(
     max_words: int = 90,
     overlap_words: int = 18,
 ) -> list[tuple[str, str]]:
-    """Split by whitespace-word units, retaining heading paths and a bounded overlap.
+    """Split prose with word overlap and keep table rows intact when possible.
 
-    Word units keep this standard-library exercise deterministic. Replace this
-    counter with the production model's tokenizer when enforcing token budgets.
+    Word units keep this standard-library exercise deterministic. Table headers
+    repeat in each table chunk. An oversized indivisible row raises so ingestion
+    can quarantine it for a table-aware parser instead of silently corrupting it.
+    Replace this counter with the production model's tokenizer for token budgets.
     """
     if max_words < 1 or overlap_words < 0 or overlap_words >= max_words:
         raise ValueError("Require max_words > overlap_words >= 0.")
     chunks: list[tuple[str, str]] = []
-    for section in sections:
-        words = section.text.split()
-        if not words:
-            continue
+
+    def append_word_chunks(section_path: str, words: list[str]) -> None:
         start = 0
         while start < len(words):
             end = min(len(words), start + max_words)
-            chunks.append((section.path, " ".join(words[start:end])))
+            chunks.append((section_path, " ".join(words[start:end])))
             if end == len(words):
                 break
             start = end - overlap_words
+
+    def append_table_chunks(section_path: str, rows: list[str]) -> None:
+        if not rows:
+            return
+        has_header = len(rows) >= 2 and all(
+            re.fullmatch(r"\s*:?-{3,}:?\s*", cell)
+            for cell in rows[1].strip().strip("|").split("|")
+        )
+        header_rows = rows[:2] if has_header else []
+        header_words = sum(len(row.split()) for row in header_rows)
+        if header_words > max_words:
+            raise ValueError("Table header exceeds max_words; use a table-aware extractor or larger chunk budget.")
+        current = list(header_rows)
+        current_words = header_words
+        for row in rows[len(header_rows) :]:
+            row_words = len(row.split())
+            if row_words > max_words:
+                raise ValueError("A table row exceeds max_words; use a table-aware extractor or larger chunk budget.")
+            if current and current_words + row_words > max_words:
+                chunks.append((section_path, "\n".join(current)))
+                current = list(header_rows)
+                current_words = header_words
+            if current_words + row_words > max_words:
+                raise ValueError("Table header and row exceed max_words; use a larger chunk budget.")
+            current.append(row)
+            current_words += row_words
+        if current:
+            chunks.append((section_path, "\n".join(current)))
+
+    for section in sections:
+        lines = section.text.splitlines()
+        prose_words: list[str] = []
+        table_rows: list[str] = []
+
+        def flush_prose() -> None:
+            nonlocal prose_words
+            append_word_chunks(section.path, prose_words)
+            prose_words = []
+
+        def flush_table() -> None:
+            nonlocal table_rows
+            append_table_chunks(section.path, table_rows)
+            table_rows = []
+
+        for line in lines:
+            stripped = line.strip()
+            is_table_row = stripped.startswith("|") and stripped.endswith("|")
+            if is_table_row:
+                flush_prose()
+                table_rows.append(stripped)
+            elif not stripped and table_rows:
+                # HTML table section tags can emit blank lines between rows.
+                continue
+            else:
+                flush_table()
+                prose_words.extend(stripped.split())
+        flush_prose()
+        flush_table()
     return chunks
 
 
@@ -579,6 +739,9 @@ def load_manifest_documents(manifest_path: str | Path) -> list[Document]:
         source_path = (root / record["path"]).resolve()
         if root not in source_path.parents:
             raise ValueError("Knowledge source path escapes the manifest directory.")
+        content = source_path.read_text(encoding="utf-8")
+        if source_path.suffix.lower() in {".htm", ".html"}:
+            content = html_to_markdown(content)
         documents.append(
             Document(
                 source_id=record["source_id"],
@@ -587,7 +750,7 @@ def load_manifest_documents(manifest_path: str | Path) -> list[Document]:
                 effective_date=record["effective_date"],
                 status=record["status"],
                 classification=record["classification"],
-                text=source_path.read_text(encoding="utf-8"),
+                text=content,
                 redact_basic_pii=record.get("redact_basic_pii", False),
             )
         )

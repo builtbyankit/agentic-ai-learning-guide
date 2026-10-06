@@ -208,6 +208,11 @@ def evaluate_dataset(
         "embedder_model_id": embedder.model_id,
         "embedding_request_count": int(getattr(embedder, "request_count", 0)),
         "embedding_input_tokens": int(getattr(embedder, "input_tokens", 0)),
+        "document_embedding_requests": int(getattr(embedder, "document_request_count", 0)),
+        "query_embedding_requests": int(getattr(embedder, "query_request_count", 0)),
+        "document_embedding_input_tokens": int(getattr(embedder, "document_input_tokens", 0)),
+        "query_embedding_input_tokens": int(getattr(embedder, "query_input_tokens", 0)),
+        "embedding_dimensions": getattr(embedder, "embedding_dimensions", getattr(embedder, "dimensions", None)),
         "corpus_sha256": corpus_fingerprint,
         "dataset_sha256": dataset_fingerprint,
         "chunking": {"max_words": CHUNK_MAX_WORDS, "overlap_words": CHUNK_OVERLAP_WORDS},
@@ -296,7 +301,10 @@ def main() -> int:
     print(report["interpretation"])
     print(
         f"embedding requests={report['embedding_request_count']} "
-        f"input tokens={report['embedding_input_tokens']}"
+        f"(documents={report['document_embedding_requests']}, queries={report['query_embedding_requests']}); "
+        f"input tokens={report['embedding_input_tokens']} "
+        f"(documents={report['document_embedding_input_tokens']}, queries={report['query_embedding_input_tokens']}); "
+        f"dimensions={report['embedding_dimensions']}"
     )
     print(f"corpus sha256={report['corpus_sha256']} dataset sha256={report['dataset_sha256']}")
     if args.output:

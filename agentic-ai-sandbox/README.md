@@ -62,7 +62,7 @@ The `policy-retrieval-v1` set has eleven synthetic paraphrase, multi-policy, sta
 
 ## Run the unstructured-data and vector retrieval lab
 
-The new RAG lab uses only the Python standard library and synthetic Markdown policies. It normalizes and parses heading structure, chunks with overlap, creates stable chunk IDs and source hashes, writes vectors plus metadata to SQLite, and supports dense, BM25-style lexical, and reciprocal-rank-fused hybrid retrieval. Every path applies the requested tenant and classification filters:
+The new RAG lab uses only the Python standard library and synthetic Markdown policies; its manifest loader also accepts static HTML, preserving headings and tables while omitting common script/style/navigation/footer boilerplate. It normalizes and parses heading structure, chunks with overlap, creates stable chunk IDs and source hashes, writes vectors plus metadata to SQLite, and supports dense, BM25-style lexical, and reciprocal-rank-fused hybrid retrieval. Every path applies the requested tenant and classification filters:
 
 ```sh
 python3 run_rag_demo.py
@@ -70,12 +70,13 @@ python3 run_rag_demo.py --query "Are delivery dates promised?" --top-k 2
 python3 run_rag_demo.py --tenant another-tenant
 ```
 
-The demo creates `rag-demo.sqlite` in the current directory. The default `HashingEmbedder` is deterministic feature hashing for demonstrating the plumbing; it is not a semantic embedding model. The SQLite store scans eligible rows for exact cosine similarity, so this is not an ANN production database. See [Module 11](../agentic-ai-module-11-data-rag-and-optimization.md) for preprocessing guidance, chunking trade-offs, retrieval evaluation, production embedding/vector-store choices, and current optimization techniques.
+The demo creates `rag-demo.sqlite` in the current directory. The default `HashingEmbedder` is deterministic feature hashing for demonstrating the plumbing; it is not a semantic embedding model. The SQLite store scans eligible rows for exact cosine similarity, so this is not an ANN production database. `run_embedding_checks.py` uses a fake transport to check batching, query/document modes, response validation, error redaction, and atomic ingestion failure without an API key or network access. See [Module 11](../agentic-ai-module-11-data-rag-and-optimization.md) for preprocessing guidance, chunking trade-offs, retrieval evaluation, production embedding/vector-store choices, and current optimization techniques.
 
 Run the storage/access checks and compare the retrievers on the labeled development and holdout sets:
 
 ```sh
 python3 run_rag_checks.py
+python3 run_embedding_checks.py
 python3 run_rag_evals.py --retriever dense
 python3 run_rag_evals.py --retriever lexical
 python3 run_rag_evals.py --retriever hybrid
@@ -93,11 +94,13 @@ python3 run_rag_evals.py --manifest knowledge/advanced/manifest.json --dataset e
 python3 run_rag_evals.py --manifest knowledge/advanced/manifest.json --dataset evals/advanced_dev_scenarios.json --retriever hybrid --embedding-provider voyage --embedding-model voyage-4 --output voyage-hybrid-dev.json
 ```
 
-Anthropic provides the agent/model adapter in this curriculum; its current documentation points to a separate embeddings provider. The optional `VoyageEmbedder` uses Python's standard library, sends separate `document` and `query` input types, batches requests, skips unchanged document chunks, and reports request/token counts. The default embedder remains offline hashing. Voyage calls can incur charges and transmit the supplied text to that provider; check current provider terms and model availability first. Override the endpoint with `VOYAGE_API_URL` or `--embedding-endpoint` when required. No live embedding call has been run in this repository yet. Do not tune on the holdout; choose settings on development data and preserve a fresh independent holdout.
+Anthropic provides the agent/model adapter in this curriculum; its current documentation points to a separate embeddings provider. The optional `VoyageEmbedder` uses Python's standard library, sends separate `document` and `query` input types, batches requests, skips unchanged document chunks, and reports request/token counts. The default endpoint is Voyage's native API; if using a MongoDB Atlas model API key, set `VOYAGE_API_URL=https://ai.mongodb.com/v1/embeddings` (or pass `--embedding-endpoint`) and follow region-specific endpoint guidance. The default embedder remains offline hashing. Voyage calls can incur charges and transmit the supplied text to that provider; check current provider terms and model availability first. No live embedding call has been run in this repository yet. Do not tune on the holdout; choose settings on development data and preserve a fresh independent holdout.
 
 The default evaluator uses the small holdout dataset and the dense placeholder, and reports known relevance gaps (nonzero exit). Its 10 queries over two short documents are retained as the minimal plumbing example. On this set, lexical retrieval passes all scenarios with 100% positive-source coverage and no-answer accuracy; hybrid passes 90% of scenarios with 100% source coverage and 75% no-answer accuracy. The expanded benchmark uses 15 manifest entries (including one superseded version) and separate 20-query development and holdout sets. It tests paraphrases, multi-source questions, stale versions, no-answer hard negatives, classification filters, and tenant isolation. The evaluator accepts `--manifest` to point at a different synthetic or sanitized corpus.
 
 The advanced holdout currently reports, for dense feature hashing / lexical / hybrid feature hashing respectively: scenario pass 50% / 95% / 90%; required positive-source coverage 50% / 100% / 100%; no-answer accuracy 0% / 50% / 0%; and authorization leaks 0/2 for each. These authored synthetic results are diagnostic, not generalization or production evidence. Lexical retrieval currently fails the investment-return hard negative; dense and hybrid return too much irrelevant material and fail both no-answer examples. A Voyage adapter is available for explicit live development-set experiments, but it has not been called and these metrics do not evaluate semantic embeddings. Use the separate `authorization leaks` metric to distinguish forbidden-source disclosure from ordinary relevance false positives. See [Module 11](../agentic-ai-module-11-data-rag-and-optimization.md) and the [evaluation data guide](evals/README.md) for limitations and interpretation.
+
+On the advanced development set, dense / lexical / hybrid scenario pass was 65% / 90% / 90%; positive-source coverage 67% / 93% / 100%; Hit@1 40% / 80% / 67%; and no-answer accuracy 0% / 50% / 0%. Lexical misses one damage case and retrieves the investment hard negative. Hybrid finds every positive source but fails to abstain. Use this split for tuning; do not use it to claim generalization.
 
 Check repeated-trial aggregation without making an API request:
 

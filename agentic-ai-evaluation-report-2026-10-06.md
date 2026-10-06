@@ -27,7 +27,8 @@ The evidence does **not** establish that a live model is useful or reliable, tha
 | Security check groups | 7/7 | Tested bounded inputs, capability separation, tenant-denial behavior, minimized data, expiry/task checks, and fail-closed dispatch pass. This is not a live-model prompt-injection assessment. |
 | Policy retrieval contract checks | 8/8 | The small policy catalog meets its current authored ranking, freshness, provenance, and minimization checks. |
 | Policy retrieval eval | 11/11 | Hit@1 100%, Recall@2 100%, MRR 1.000, exact coverage 100%, and empty-query accuracy 100% on `policy-retrieval-v1`. This dataset is small and written alongside the retriever. |
-| RAG storage/access checks | 5/5 groups | SQLite ingestion, metadata/provenance, access filters, supersede, persistence, and deletion work in the tested local paths. |
+| RAG preprocessing/storage/access checks | 6/6 groups | Markdown and static-HTML extraction, table/heading preservation, SQLite idempotency, metadata/provenance, filters, supersede, persistence, and deletion pass their synthetic local checks. PDF/OCR and Office extraction remain unimplemented. |
+| Voyage adapter checks | 8/8, fake transport | Batching, query/document request types, response ordering/shape, dimension consistency, credential/error redaction, no-partial-write behavior after a later-batch failure, and end-to-end evaluator telemetry pass without network/API usage. |
 | RAG dense holdout (minimal set) | 60% scenario pass; 50% positive-source coverage; 83% Hit@1; 67% Recall@4; MRR .833; 75% no-answer accuracy; 100% unique-source precision | Feature hashing misses several authored relevant-source requirements and returned a result for the capital-city no-answer query. It is not a semantic embedding benchmark. |
 | RAG lexical holdout (minimal set) | 100% scenario pass and positive-source coverage; 100% Hit@1/Recall@4; MRR 1.000; 100% no-answer accuracy; 89% unique-source precision | Lexical retrieval is strongest on this tiny, keyword-oriented synthetic holdout. The precision gap shows extra sources remain. It does not establish generalization. |
 | RAG hybrid holdout (minimal set) | 90% scenario pass; 100% positive-source coverage/Hit@1/Recall@4; MRR 1.000; 75% no-answer accuracy; 89% unique-source precision | RRF recovered required sources in positive cases but carried a false positive for the capital-city no-answer query. It underperforms lexical retrieval on abstention. |
@@ -39,6 +40,21 @@ The RAG holdout contains ten queries over two short policy documents. A zero or 
 ## Expanded RAG evaluation
 
 To test the evaluator on more than the original two-document demo, I added 15 manifest entries (including an archived/superseded version) across 14 source IDs, 20 development queries, and a separate 20-query holdout. Cases cover paraphrases, multiple required sources, source-version constraints, answerable and unanswerable queries, hard negatives, tenant scope, and classification filters. The evaluator now accepts `--manifest`, checks `expected_versions`, and separates `authorization` cases with forbidden source IDs from ordinary relevance/abstention cases.
+
+The development split is for model, chunking, and threshold selection; do not treat it as a second holdout:
+
+| Advanced development metric | Dense feature hash | BM25-style lexical | Hybrid RRF |
+|---|---:|---:|---:|
+| Scenario pass | 65% | 90% | 90% |
+| Required positive-source coverage | 67% | 93% | 100% |
+| Hit@1 | 40% | 80% | 67% |
+| Recall@5 sources | 67% | 93% | 100% |
+| MRR | .494 | .856 | .822 |
+| No-answer accuracy | 0% | 50% | 0% |
+| Unique-source precision | 31% | 41% | 33% |
+| Forbidden-source leakage | 0/3 | 0/3 | 0/3 |
+
+Lexical misses `damage-crushed-in-transit` and returns results for the investment hard negative. Hybrid retrieves every labeled positive source but still answers both no-answer examples. Dense misses several paraphrases and both negative checks. These are tuning signals on this synthetic set only.
 
 | Advanced holdout metric | Dense feature hash | BM25-style lexical | Hybrid RRF |
 |---|---:|---:|---:|
@@ -96,6 +112,7 @@ python3 run_security_checks.py
 python3 run_retrieval_checks.py
 python3 run_retrieval_evals.py
 python3 run_rag_checks.py
+python3 run_embedding_checks.py
 python3 run_rag_evals.py --retriever dense
 python3 run_rag_evals.py --retriever lexical
 python3 run_rag_evals.py --retriever hybrid
